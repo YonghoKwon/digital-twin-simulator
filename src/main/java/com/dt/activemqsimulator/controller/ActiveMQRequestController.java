@@ -7,7 +7,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 @RestController
 public class ActiveMQRequestController {
@@ -19,23 +19,23 @@ public class ActiveMQRequestController {
         this.activeMQRequestLogic = activeMQRequestLogic;
     }
 
-    @PostMapping("/activemq")
-    public String activemq(@RequestBody ActiveMQRequestDto activeMQRequestDto) {
+    @PostMapping("/activemq-normal")
+    public String activemqNormal(@RequestBody ActiveMQRequestDto activeMQRequestDto) {
         // get now time
         long now = System.currentTimeMillis();
-        String flag = "activemq" + now;
+        String flag = "activemq-normal" + now;
         activeMQRequestLogic.sendTopic(flag, activeMQRequestDto);
 
         return "success";
     }
 
-    @PostMapping("/activemq2")
-    public String activemq2(@RequestBody ActiveMQRequestDto activeMQRequestDto) {
+    @PostMapping("/activemq")
+    public CompletableFuture<String> activemq(@RequestBody ActiveMQRequestDto activeMQRequestDto) {
         // get now time
         long now = System.currentTimeMillis();
-        String flag = "activemq2" + now;
-        activeMQRequestLogic.sendTopic(flag, activeMQRequestDto);
+        String flag = "activemq" + now;
 
-        return "success";
+        return activeMQRequestLogic.sendTopic(flag, activeMQRequestDto)
+                .thenApply(result -> "async success");
     }
 }
