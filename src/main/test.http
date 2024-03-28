@@ -1,0 +1,34 @@
+###
+POST http://localhost:8080/activemq-normal
+Content-Type: application/json
+
+{
+  "activeMQIp": "amqp://220.80.16.171:61616",
+  "id": "artemis",
+  "pw": "artemis",
+  "topic": "jms.topic.cep.output.9",
+  "tcName": "KE2D1Z11",
+  "delayTime": 2000,
+
+  "repeat": true,
+  "repeatTime": 5,
+  "format": [
+    {
+      "dataId": "tagId, employeeId, employeeName, xCoordination, yCoordination, zCoordination",
+      "dataType": "String, Integer, String, Integer, Integer, Integer",
+      "random": false,
+      "randomCondition": "10, 10, 5, 3, 3, 3"
+    }
+  ],
+  "value": [
+    {
+      "0": "450517, 300076, 이정호, 105.97, 210.27, 1.5",
+      "1": "450517, 300076, 이정호, 103.97, 210.27, 4.5"
+    }
+  ]
+}
+
+<> 2024-03-28T204944.200.txt
+
+
+#"activeMQIp": "amqp://172.28.79.32:61616",
