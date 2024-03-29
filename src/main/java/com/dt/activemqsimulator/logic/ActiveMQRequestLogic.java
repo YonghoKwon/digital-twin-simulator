@@ -37,7 +37,9 @@ public class ActiveMQRequestLogic {
                 // 분기 처리.. 랜덤 항목이 true면 반복시간만큼 message 만들어서 send
                 if(activeMQRequestDto.isRepeat()) {
                     // TODO: 반복시간만큼으로 변경 필요
-                    while (true) {
+                    int i = 0;
+                    while (i < activeMQRequestDto.getRepeatTime()) {
+                        i++;
                         TextMessage message = session.createTextMessage();
 
                         Date now = new Date();
@@ -73,52 +75,51 @@ public class ActiveMQRequestLogic {
 
                         Thread.sleep(activeMQRequestDto.getDelayTime());
 
+                    }
+                    // connection close;
+                    sender.close();
+                    session.close();
+                } else {
+                    // message creates in value count
+                    for (int i = 0; i < (activeMQRequestDto.getValue().get(0)).size(); i++) {
+                        TextMessage message = session.createTextMessage();
+
+                        Date now = new Date();
+                        Locale currentLocale = new Locale("KOREAN", "KOREA");
+                        String pattern = "yyyyMMddHHmmss";
+                        SimpleDateFormat simpleDateFormat = new SimpleDateFormat(pattern, currentLocale);
+                        String nowString = simpleDateFormat.format(now);
+
+                        String[] keyArray = activeMQRequestDto.getFormat().get(0).get("dataId").split(",");
+                        String[] valueArray = activeMQRequestDto.getValue().get(0).get(i + 1).split(",");
+
+                        message.setText(
+                                "{" +
+                                        "\"CREATE_TIMESTAMP\": \"" + nowString + "\"," +
+                                        "\"MESSAGE_ID\": \"" + activeMQRequestDto.getTcName() + "\"," +
+                                        "\"DATA_MAP\": {" +
+                                        "\"" + nowString + "\":{" +
+                                        // Key: Value
+                                        // make key and value in keyArray size
+//                                    "\"" + keyArray[j] + "\": \"" + valueArray[j] + "\"," +
+                                        makeData(keyArray, valueArray) +
+                                        "}" +
+                                        "}" +
+                                        "}"
+                        );
+
+                        System.out.println("message : " + message.getText());
+                        System.out.println("message : " + prettyPrintUsingGlobalSetting(message.getText()));
+
+                        // message send
+                        sender.send(message);
+
+                        Thread.sleep(activeMQRequestDto.getDelayTime());
+
                         // connection close;
                         sender.close();
                         session.close();
                     }
-                }
-
-
-                // message creates in value count
-                for(int i = 0; i < (activeMQRequestDto.getValue().get(0)).size(); i++) {
-                    TextMessage message = session.createTextMessage();
-
-                    Date now = new Date();
-                    Locale currentLocale = new Locale("KOREAN", "KOREA");
-                    String pattern = "yyyyMMddHHmmss";
-                    SimpleDateFormat simpleDateFormat = new SimpleDateFormat(pattern, currentLocale);
-                    String nowString = simpleDateFormat.format(now);
-
-                    String[] keyArray = activeMQRequestDto.getFormat().get(0).get("dataId").split(",");
-                    String[] valueArray = activeMQRequestDto.getValue().get(0).get(i+1).split(",");
-
-                    message.setText(
-                        "{" +
-                            "\"CREATE_TIMESTAMP\": \"" + nowString + "\"," +
-                            "\"MESSAGE_ID\": \"" + activeMQRequestDto.getTcName() + "\"," +
-                            "\"DATA_MAP\": {" +
-                                "\"" + nowString + "\":{" +
-                                    // Key: Value
-                                    // make key and value in keyArray size
-//                                    "\"" + keyArray[j] + "\": \"" + valueArray[j] + "\"," +
-                                    makeData(keyArray, valueArray) +
-                                "}" +
-                            "}" +
-                        "}"
-                    );
-
-                    System.out.println("message : " + message.getText());
-                    System.out.println("message : " + prettyPrintUsingGlobalSetting(message.getText()));
-
-                    // message send
-                    sender.send(message);
-
-                    Thread.sleep(activeMQRequestDto.getDelayTime());
-
-                    // connection close;
-                    sender.close();
-                    session.close();
                 }
 
             } catch (JMSException e) {
