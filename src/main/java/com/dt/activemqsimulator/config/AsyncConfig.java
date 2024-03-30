@@ -14,7 +14,7 @@ import java.lang.reflect.Method;
 @EnableAsync
 public class AsyncConfig implements AsyncConfigurer {
 
-    @Bean
+    @Bean(name = "threadPoolTaskExecutor")
     public ThreadPoolTaskExecutor taskExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(10); // 코어 스레드 풀 크기 설정

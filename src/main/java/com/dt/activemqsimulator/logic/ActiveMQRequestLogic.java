@@ -4,6 +4,7 @@ import com.dt.activemqsimulator.dto.ActiveMQRequestDto;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.activemq.artemis.utils.RandomUtil;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.qpid.jms.JmsConnectionFactory;
@@ -17,6 +18,7 @@ import java.util.concurrent.CompletableFuture;
 
 import static org.apache.activemq.artemis.utils.RandomUtil.*;
 
+@Slf4j
 @Service
 public class ActiveMQRequestLogic {
 
@@ -35,124 +37,122 @@ public class ActiveMQRequestLogic {
                 MessageProducer sender = session.createProducer(topic);
 
                 // 분기 처리.. 랜덤 항목이 true면 반복시간만큼 message 만들어서 send
-                if(activeMQRequestDto.isRepeat()) {
-                    // TODO: 반복시간만큼으로 변경 필요
+                if(activeMQRequestDto.isRepeatBoolean()) {
                     int i = 0;
-                    while (i < activeMQRequestDto.getRepeatTime()) {
+                    while (i < (activeMQRequestDto.getRepeatTime() / 1000) ) {
                         i++;
-                        TextMessage message = session.createTextMessage();
 
-                        Date now = new Date();
-                        Locale currentLocale = new Locale("KOREAN", "KOREA");
-                        String pattern = "yyyyMMddHHmmss";
-                        SimpleDateFormat simpleDateFormat = new SimpleDateFormat(pattern, currentLocale);
-                        String nowString = simpleDateFormat.format(now);
-
-                        String[] keyArray = activeMQRequestDto.getFormat().get(0).get("dataId").split(",");
-                        String[] keyTypeArray = activeMQRequestDto.getFormat().get(0).get("dataType").split(",");
-                        String[] randomConditionArray = activeMQRequestDto.getFormat().get(0).get("randomCondition").split(",");
-
-                        message.setText(
-                            "{" +
-                                "\"CREATE_TIMESTAMP\": \"" + nowString + "\"," +
-                                "\"MESSAGE_ID\": \"" + activeMQRequestDto.getTcName() + "\"," +
-                                "\"DATA_MAP\": {" +
-                                    "\"" + nowString + "\":{" +
-                                        // Key: Value
-                                        // make key and value in keyArray size
-//                                    "\"" + keyArray[j] + "\": \"" + valueArray[j] + "\"," +
-                                        makeRandomData(keyArray, keyTypeArray, randomConditionArray) +
-                                    "}" +
-                                "}" +
-                            "}"
-                        );
-
-                        System.out.println("message : " + message.getText());
-                        System.out.println("message : " + prettyPrintUsingGlobalSetting(message.getText()));
-
-                        // message send
-                        sender.send(message);
-
-                        Thread.sleep(activeMQRequestDto.getDelayTime());
-
+                        // value count가 1개 이상일 때
+                        if(!activeMQRequestDto.getValue().get(0).isEmpty()) {
+                            // message creates in value count
+                            messageCreateInValueCount(flag, activeMQRequestDto, session, sender);
+                        } else {
+                            // message creates in random
+                            messageCreateRandom(flag, activeMQRequestDto, session, sender);
+                        }
                     }
                     // connection close;
                     sender.close();
                     session.close();
                 } else {
                     // message creates in value count
-                    for (int i = 0; i < (activeMQRequestDto.getValue().get(0)).size(); i++) {
-                        TextMessage message = session.createTextMessage();
+                    messageCreateInValueCount(flag, activeMQRequestDto, session, sender);
 
-                        Date now = new Date();
-                        Locale currentLocale = new Locale("KOREAN", "KOREA");
-                        String pattern = "yyyyMMddHHmmss";
-                        SimpleDateFormat simpleDateFormat = new SimpleDateFormat(pattern, currentLocale);
-                        String nowString = simpleDateFormat.format(now);
-
-                        String[] keyArray = activeMQRequestDto.getFormat().get(0).get("dataId").split(",");
-                        String[] valueArray = activeMQRequestDto.getValue().get(0).get(i + 1).split(",");
-
-                        message.setText(
-                                "{" +
-                                        "\"CREATE_TIMESTAMP\": \"" + nowString + "\"," +
-                                        "\"MESSAGE_ID\": \"" + activeMQRequestDto.getTcName() + "\"," +
-                                        "\"DATA_MAP\": {" +
-                                        "\"" + nowString + "\":{" +
-                                        // Key: Value
-                                        // make key and value in keyArray size
-//                                    "\"" + keyArray[j] + "\": \"" + valueArray[j] + "\"," +
-                                        makeData(keyArray, valueArray) +
-                                        "}" +
-                                        "}" +
-                                        "}"
-                        );
-
-                        System.out.println("message : " + message.getText());
-                        System.out.println("message : " + prettyPrintUsingGlobalSetting(message.getText()));
-
-                        // message send
-                        sender.send(message);
-
-                        Thread.sleep(activeMQRequestDto.getDelayTime());
-
-                        // connection close;
-                        sender.close();
-                        session.close();
-                    }
+                    // connection close;
+                    sender.close();
+                    session.close();
                 }
 
             } catch (JMSException e) {
                 throw new RuntimeException(e);
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);
-            } catch (JsonProcessingException e) {
-                throw new RuntimeException(e);
             }
-
-//            System.out.println("start flag = " + flag + " activeMQRequestDto = " + activeMQRequestDto);
-//            for(int i = 0; i < 10; i++) {
-//                try {
-//                    Thread.sleep(500);
-//                } catch (InterruptedException e) {
-//                    e.printStackTrace();
-//                }
-//                System.out.println("flag = " + flag + " i = " + i);
-//            }
-//
-//            // delay time 만큼 sleep
-//            try {
-//                Thread.sleep(30000);
-//            } catch (InterruptedException e) {
-//                e.printStackTrace();
-//            }
-//            System.out.println("end flag = " + flag + " activeMQRequestDto = " + activeMQRequestDto);
 
             return "success";
         });
     }
 
-    private String makeRandomData(String[] keyArray, String[] keyTypeArray, String[] randomConditionArray) {
+    private void messageCreateRandom(String flag, ActiveMQRequestDto activeMQRequestDto, Session session, MessageProducer sender) throws JMSException, InterruptedException {
+        TextMessage message = session.createTextMessage();
+
+        Date now = new Date();
+        Locale currentLocale = new Locale("KOREAN", "KOREA");
+        String pattern = "yyyyMMddHHmmss";
+        SimpleDateFormat simpleDateFormat = new SimpleDateFormat(pattern, currentLocale);
+        String nowString = simpleDateFormat.format(now);
+
+        String[] keyArray = activeMQRequestDto.getFormat().get(0).get("dataId").split(",");
+        String[] keyTypeArray = activeMQRequestDto.getFormat().get(0).get("dataType").split(",");
+        String[] randomBooleanArray = activeMQRequestDto.getFormat().get(0).get("randomBoolean").split(",");
+        String[] randomConditionArray = activeMQRequestDto.getFormat().get(0).get("randomCondition").split(",");
+
+        message.setText(
+            "{" +
+                "\"CREATE_TIMESTAMP\": \"" + nowString + "\"," +
+                "\"MESSAGE_ID\": \"" + activeMQRequestDto.getTcName() + "\"," +
+                "\"DATA_MAP\": {" +
+                    "\"" + nowString + "\":{" +
+                    // Key: Value
+                    // make key and value in keyArray size
+                    makeRandomData(keyArray, keyTypeArray, randomBooleanArray, randomConditionArray) +
+                    "}" +
+                "}" +
+            "}"
+        );
+
+        log.info(flag + " message : " + message.getText());
+//                        log.info(flag + " message : " + prettyPrintUsingGlobalSetting(message.getText()));
+
+        // message send
+        sender.send(message);
+
+        Thread.sleep(activeMQRequestDto.getDelayTime());
+    }
+
+    private void messageCreateInValueCount(String flag, ActiveMQRequestDto activeMQRequestDto, Session session, MessageProducer sender) throws JMSException, InterruptedException {
+        for (int i = 0; i < (activeMQRequestDto.getValue().get(0)).size(); i++) {
+            TextMessage message = session.createTextMessage();
+
+            Date now = new Date();
+            Locale currentLocale = new Locale("KOREAN", "KOREA");
+            String pattern = "yyyyMMddHHmmss";
+            SimpleDateFormat simpleDateFormat = new SimpleDateFormat(pattern, currentLocale);
+            String nowString = simpleDateFormat.format(now);
+
+            String[] keyArray = activeMQRequestDto.getFormat().get(0).get("dataId").split(",");
+            String[] valueArray = activeMQRequestDto.getValue().get(0).get(i).split(",");
+
+            String[] keyTypeArray = activeMQRequestDto.getFormat().get(0).get("dataType").split(",");
+            String[] randomBooleanArray = activeMQRequestDto.getFormat().get(0).get("randomBoolean").split(",");
+            String[] randomConditionArray = activeMQRequestDto.getFormat().get(0).get("randomCondition").split(",");
+
+            message.setText(
+                "{" +
+                    "\"CREATE_TIMESTAMP\": \"" + nowString + "\"," +
+                    "\"MESSAGE_ID\": \"" + activeMQRequestDto.getTcName() + "\"," +
+                    "\"DATA_MAP\": {" +
+                        "\"" + nowString + "\":{" +
+                        // Key: Value
+                        // make key and value in keyArray size
+//                                    "\"" + keyArray[j] + "\": \"" + valueArray[j] + "\"," +
+                        makeData(keyArray, keyTypeArray, randomBooleanArray, randomConditionArray, valueArray) +
+                        "}" +
+                    "}" +
+                "}"
+            );
+
+            log.info(flag + " message : " + message.getText());
+//                        log.info(flag + " message : " + prettyPrintUsingGlobalSetting(message.getText()));
+
+            // message send
+            sender.send(message);
+
+            Thread.sleep(activeMQRequestDto.getDelayTime());
+        }
+    }
+
+    private String makeRandomData(String[] keyArray, String[] keyTypeArray, String[] randomBooleanArray, String[] randomConditionArray) {
         StringBuilder sb = new StringBuilder();
         for(int i = 0; i < keyArray.length; i++) {
             if(i == keyArray.length - 1)
@@ -189,17 +189,24 @@ public class ActiveMQRequestLogic {
     }
 
     private String randomString(int i) {
-        // i 길이의 랜덤 문자열 생성하여 리턴
+        // i ~ j 길이의 랜덤 문자열 생성하여 리턴
         return RandomStringUtils.randomAlphanumeric(i);
     }
 
     private String randomInteger(int i) {
-        // i 범위의 랜덤 정수 생성하여 리턴
+        // i ~ j 범위의 랜덤 정수 생성하여 리턴
         return String.valueOf(RandomUtil.randomInterval(0, i));
     }
 
-    private String randomDouble(double v) {
-        return null;
+    private String randomDouble(double i) {
+        // i ~ j 범위 값 랜덤 생성
+        // k 자리수로 반올림
+        double randomDouble = i + new Random().nextDouble() * (0 - i);
+
+        // randomDouble을 3자리수로 반올림
+        randomDouble = Math.round(randomDouble * 1000) / 1000.0;
+
+        return String.valueOf(randomDouble);
     }
 
     private String randomBoolean() {
@@ -210,13 +217,21 @@ public class ActiveMQRequestLogic {
         return null;
     }
 
-    private String makeData(String[] keyArray, String[] valueArray) {
+    private String makeData(String[] keyArray, String[] keyTypeArray, String[] randomBooleanArray, String[] randomConditionArray, String[] valueArray) {
         StringBuilder sb = new StringBuilder();
         for(int i = 0; i < keyArray.length; i++) {
             if(i == keyArray.length - 1)
-                sb.append("\"" + keyArray[i].trim() + "\": \"" + valueArray[i].trim() + "\"");
+                if(randomBooleanArray[i].trim().equals("1"))
+                    sb.append("\"" + keyArray[i].trim() + "\": \"" + makeRandomValue(keyTypeArray[i].trim(), randomConditionArray[i].trim()) + "\"");
+                else
+                    sb.append("\"" + keyArray[i].trim() + "\": \"" + valueArray[i].trim() + "\"");
+//                sb.append("\"" + keyArray[i].trim() + "\": \"" + valueArray[i].trim() + "\"");
             else
-                sb.append("\"" + keyArray[i].trim() + "\": \"" + valueArray[i].trim() + "\",");
+                if (randomBooleanArray[i].trim().equals("1"))
+                    sb.append("\"" + keyArray[i].trim() + "\": \"" + makeRandomValue(keyTypeArray[i].trim(), randomConditionArray[i].trim()) + "\",");
+                else
+                    sb.append("\"" + keyArray[i].trim() + "\": \"" + valueArray[i].trim() + "\",");
+//                sb.append("\"" + keyArray[i].trim() + "\": \"" + valueArray[i].trim() + "\",");
         }
         return sb.toString();
     }
@@ -224,7 +239,6 @@ public class ActiveMQRequestLogic {
     public String prettyPrintUsingGlobalSetting(String uglyJsonString) throws JsonProcessingException {
         ObjectMapper mapper = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
         Object jsonObject = mapper.readValue(uglyJsonString, Object.class);
-        String prettyJson = mapper.writeValueAsString(jsonObject);
-        return prettyJson;
+        return mapper.writeValueAsString(jsonObject);
     }
 }

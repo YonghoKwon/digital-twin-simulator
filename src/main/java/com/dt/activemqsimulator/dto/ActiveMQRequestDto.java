@@ -35,14 +35,16 @@ public class ActiveMQRequestDto {
             }
         ]
     }*/
+    // 필수 항목들
     private String activeMQIp;
     private String id;
     private String pw;
     private String topic;
     private String tcName;
-    private boolean repeat;
-    private int repeatTime;
     private int delayTime;
+
+    private boolean repeatBoolean;
+    private int repeatTime;
 //    private Map<String, Map<String, Object>> format;
 //    private Map<String, ActiveMQFormatDto> format;
     private List<Map<String, String>> format;

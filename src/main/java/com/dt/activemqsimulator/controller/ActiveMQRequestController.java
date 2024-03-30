@@ -24,18 +24,24 @@ public class ActiveMQRequestController {
         // get now time
         long now = System.currentTimeMillis();
         String flag = "activemq-normal" + now;
-        activeMQRequestLogic.sendTopic(flag, activeMQRequestDto);
 
+//        ActiveMQRequestLogic asyncActiveMQRequestLogic = new ActiveMQRequestLogic();
+//        asyncActiveMQRequestLogic.sendTopic(flag, activeMQRequestDto);
+
+        activeMQRequestLogic.sendTopic(flag, activeMQRequestDto);
         return "success";
     }
 
     @PostMapping("/activemq")
-    public CompletableFuture<String> activemq(@RequestBody ActiveMQRequestDto activeMQRequestDto) {
+//    public CompletableFuture<String> activemq(@RequestBody ActiveMQRequestDto activeMQRequestDto) {
+    public String activemq(@RequestBody ActiveMQRequestDto activeMQRequestDto) {
         // get now time
         long now = System.currentTimeMillis();
         String flag = "activemq" + now;
 
-        return activeMQRequestLogic.sendTopic(flag, activeMQRequestDto)
-                .thenApply(result -> "async success");
+        activeMQRequestLogic.sendTopic(flag, activeMQRequestDto);
+        return "success";
+//        return activeMQRequestLogic.sendTopic(flag, activeMQRequestDto)
+//                .thenApply(result -> "async success");
     }
 }
