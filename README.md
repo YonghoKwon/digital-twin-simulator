@@ -26,14 +26,14 @@
 ### REST API 종류
 - /activemq/{taskId} : taskId에 해당하는 task를 실행하여 activeMQ artemis에 message 전송
  > ex) http://localhost:8080/activemq/test
- > @PathVariable String taskId : task id
+ > @PathVariable String taskId : taskId의 앞 부분
  > @RequestBody ActiveMQRequestDto activeMQRequestDto : activeMQ ip, id, pw 등 정보
  > return 값 : taskId-{UUID}
 
 - /cancel-task/{taskId} : taskId에 해당하는 task를 취소
- > ex) http://localhost:8080/cancel-task/test
- > @PathVariable String taskId : task id
+ > ex) http://localhost:8080/cancel-task/test-{UUID}
+ > @PathVariable String taskId : taskId-{UUID}
 
 - /running-task : 현재 실행중인 task 목록 조회
  > ex) http://localhost:8080/running-task
- > return 값 : ActiveMQTaskInfoDto(taskId, taskCancelApiUrl)
+ > return 값 : ActiveMQTaskInfoDto(taskId-{UUID}, taskCancelApiUrl)
