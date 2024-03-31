@@ -1,5 +1,13 @@
 ###
-POST http://localhost:8080/activemq-normal
+#All Running Task 조회
+GET http://localhost:8080/running-task
+
+###
+#특정 하나의 Running Task 멈춤
+POST http://localhost:8080/cancel-task/test-42b1d3db-d7ea-4bd7-9fc0-2ded1c3d598b
+
+###
+POST http://localhost:8080/activemq/test
 Content-Type: application/json
 
 {
@@ -8,10 +16,10 @@ Content-Type: application/json
   "pw": "artemis",
   "topic": "jms.topic.cep.output.9",
   "tcName": "KE2D1Z11",
-  "delayTime": 2000,
+  "delayTime": 3000,
 
   "repeatBoolean": true,
-  "repeatTime": 5000,
+  "repeatTime": 15000,
   "format": [
     {
       "dataId": "tagId, employeeId, employeeName, xCoordination, yCoordination, zCoordination",

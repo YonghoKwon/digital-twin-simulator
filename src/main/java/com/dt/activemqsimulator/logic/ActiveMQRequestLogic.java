@@ -16,14 +16,21 @@ import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 
-import static org.apache.activemq.artemis.utils.RandomUtil.*;
-
 @Slf4j
 @Service
 public class ActiveMQRequestLogic {
 
+    private final TaskCancellationLogic taskCancellationLogic;
+
+    public ActiveMQRequestLogic(TaskCancellationLogic taskCancellationLogic) {
+        this.taskCancellationLogic = taskCancellationLogic;
+    }
+
     @Async
-    public CompletableFuture<String> sendTopic(String flag, ActiveMQRequestDto activeMQRequestDto) {
+    public CompletableFuture<String> sendTopic(String taskId, ActiveMQRequestDto activeMQRequestDto) {
+        log.info("taskId : " + taskId);
+        taskCancellationLogic.registerTask(taskId);
+
         return CompletableFuture.supplyAsync(() -> {
             // activeMQ connection
             ConnectionFactory connectionFactory = new JmsConnectionFactory(activeMQRequestDto.getActiveMQIp());
@@ -45,10 +52,22 @@ public class ActiveMQRequestLogic {
                         // value count가 1개 이상일 때
                         if(!activeMQRequestDto.getValue().get(0).isEmpty()) {
                             // message creates in value count
-                            messageCreateInValueCount(flag, activeMQRequestDto, session, sender);
+                            messageCreateInValueCount(taskId, activeMQRequestDto, session, sender);
                         } else {
                             // message creates in random
-                            messageCreateRandom(flag, activeMQRequestDto, session, sender);
+                            messageCreateRandom(taskId, activeMQRequestDto, session, sender);
+                        }
+
+                        // 작업 취소 확인 로직
+                        if (taskCancellationLogic.isCancellationRequested(taskId)) {
+                            log.info("작업이 취소되었습니다: " + taskId);
+
+                            // connection close;
+                            sender.close();
+                            session.close();
+
+                            // 필요한 경우 여기에서 작업 종료 관련 정리를 수행할 수 있습니다.
+                            return "Cancelled";
                         }
                     }
                     // connection close;
@@ -56,17 +75,29 @@ public class ActiveMQRequestLogic {
                     session.close();
                 } else {
                     // message creates in value count
-                    messageCreateInValueCount(flag, activeMQRequestDto, session, sender);
+                    messageCreateInValueCount(taskId, activeMQRequestDto, session, sender);
+
+                    // 작업 취소 확인 로직
+                    if (taskCancellationLogic.isCancellationRequested(taskId)) {
+                        log.info("작업이 취소되었습니다: " + taskId);
+
+                        // connection close;
+                        sender.close();
+                        session.close();
+
+                        // 필요한 경우 여기에서 작업 종료 관련 정리를 수행할 수 있습니다.
+                        return "Cancelled";
+                    }
 
                     // connection close;
                     sender.close();
                     session.close();
                 }
 
-            } catch (JMSException e) {
+            } catch (JMSException | InterruptedException e) {
                 throw new RuntimeException(e);
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
+            } finally {
+                taskCancellationLogic.removeTask(taskId);
             }
 
             return "success";

@@ -3,11 +3,9 @@ package com.dt.activemqsimulator.controller;
 import com.dt.activemqsimulator.dto.ActiveMQRequestDto;
 import com.dt.activemqsimulator.logic.ActiveMQRequestLogic;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
-import java.util.concurrent.CompletableFuture;
+import java.util.*;
 
 @RestController
 public class ActiveMQRequestController {
@@ -15,21 +13,21 @@ public class ActiveMQRequestController {
     private final ActiveMQRequestLogic activeMQRequestLogic;
 
     @Autowired
-    public ActiveMQRequestController(ActiveMQRequestLogic activeMQRequestLogic) {
+    public ActiveMQRequestController(
+            ActiveMQRequestLogic activeMQRequestLogic
+    ) {
         this.activeMQRequestLogic = activeMQRequestLogic;
     }
 
-    @PostMapping("/activemq-normal")
-    public String activemqNormal(@RequestBody ActiveMQRequestDto activeMQRequestDto) {
-        // get now time
-        long now = System.currentTimeMillis();
-        String flag = "activemq-normal" + now;
+    @PostMapping("/activemq/{taskId}")
+    public String activemqNormal(
+            @PathVariable String taskId,
+            @RequestBody ActiveMQRequestDto activeMQRequestDto
+    ) {
+        taskId = taskId + "-" + UUID.randomUUID(); // 고유한 작업 ID 생
 
-//        ActiveMQRequestLogic asyncActiveMQRequestLogic = new ActiveMQRequestLogic();
-//        asyncActiveMQRequestLogic.sendTopic(flag, activeMQRequestDto);
-
-        activeMQRequestLogic.sendTopic(flag, activeMQRequestDto);
-        return "success";
+        activeMQRequestLogic.sendTopic(taskId, activeMQRequestDto);
+        return "success : taskId : " + taskId;
     }
 
     @PostMapping("/activemq")

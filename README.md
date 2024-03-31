@@ -18,4 +18,19 @@
 - size < 1 : random 조건에 맞게 데이터 생성
 - size >= 1 : value에 지정된 데이터로 생성
 
-### 3. 
+### 3. Format(항목 id, type, random value 유무, random value 범위)
+
+### REST API 종류
+- /activemq/{taskId} : taskId에 해당하는 task를 실행하여 activeMQ artemis에 message 전송
+ > ex) http://localhost:8080/activemq/test
+ > @PathVariable String taskId : task id
+ > @RequestBody ActiveMQRequestDto activeMQRequestDto : activeMQ ip, id, pw 등 정보
+ > return 값 : taskId-{UUID}
+
+- /cancel-task/{taskId} : taskId에 해당하는 task를 취소
+ > ex) http://localhost:8080/cancel-task/test
+ > @PathVariable String taskId : task id
+
+- /running-task : 현재 실행중인 task 목록 조회
+ > ex) http://localhost:8080/running-task
+ > return 값 : ActiveMQTaskInfoDto(taskId, taskCancelApiUrl)
