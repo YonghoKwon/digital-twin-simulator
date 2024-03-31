@@ -2,6 +2,9 @@
 
 ## REST API 를 통한 데이터 전송을 시뮬레이션 하는 프로그램
 
+### swagger-ui url
+- http://localhost:8080/swagger-ui/
+
 ### 0. 필수 항목들
 - activeMQIp : activeMQ ip & port ex) amqp://220.80.16.171:61616
 - id : ex) artemis or admin
