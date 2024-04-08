@@ -9,10 +9,10 @@
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
     <groupId>com.dt</groupId>
-    <artifactId>activemq-simulator</artifactId>
+    <artifactId>digital-twin-simulator</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>activemq-simulator</name>
-    <description>activemq-simulator</description>
+    <name>digital-twin-simulator</name>
+    <description>digital-twin-simulator</description>
     <properties>
         <java.version>8</java.version>
     </properties>

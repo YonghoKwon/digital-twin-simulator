@@ -1,4 +1,4 @@
-package com.dt.activemqsimulator.dto;
+package com.dt.digitaltwinsimulator.dto;
 
 import lombok.Getter;
 import lombok.Setter;

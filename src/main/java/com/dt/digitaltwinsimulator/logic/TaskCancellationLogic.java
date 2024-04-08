@@ -1,4 +1,4 @@
-package com.dt.activemqsimulator.logic;
+package com.dt.digitaltwinsimulator.logic;
 
 import org.springframework.stereotype.Service;
 

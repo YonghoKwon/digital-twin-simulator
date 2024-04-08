@@ -1,8 +1,8 @@
-package com.dt.activemqsimulator.controller;
+package com.dt.digitaltwinsimulator.controller;
 
-import com.dt.activemqsimulator.dto.ActiveMQTaskInfoDto;
-import com.dt.activemqsimulator.logic.ActiveMQTaskLogic;
-import com.dt.activemqsimulator.logic.TaskCancellationLogic;
+import com.dt.digitaltwinsimulator.dto.ActiveMQTaskInfoDto;
+import com.dt.digitaltwinsimulator.logic.ActiveMQTaskLogic;
+import com.dt.digitaltwinsimulator.logic.TaskCancellationLogic;
 import io.swagger.annotations.ApiOperation;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;

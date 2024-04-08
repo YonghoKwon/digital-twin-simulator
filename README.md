@@ -1,4 +1,4 @@
-# ActiveMQ Simulator
+# Digital Twin Simulator
 
 ## REST API 를 통한 데이터 전송을 시뮬레이션 하는 프로그램
 

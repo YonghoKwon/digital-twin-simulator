@@ -1,7 +1,7 @@
-package com.dt.activemqsimulator.controller;
+package com.dt.digitaltwinsimulator.controller;
 
-import com.dt.activemqsimulator.dto.ActiveMQRequestDto;
-import com.dt.activemqsimulator.logic.ActiveMQRequestLogic;
+import com.dt.digitaltwinsimulator.dto.ActiveMQRequestDto;
+import com.dt.digitaltwinsimulator.logic.ActiveMQRequestLogic;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 

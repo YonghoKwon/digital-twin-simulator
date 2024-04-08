@@ -1,6 +1,6 @@
-package com.dt.activemqsimulator.logic;
+package com.dt.digitaltwinsimulator.logic;
 
-import com.dt.activemqsimulator.dto.ActiveMQRequestDto;
+import com.dt.digitaltwinsimulator.dto.ActiveMQRequestDto;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
