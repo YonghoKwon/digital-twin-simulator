@@ -3,8 +3,49 @@
 GET http://localhost:8080/running-task
 
 ###
+#모든 Running Task 멈춤
+POST http://localhost:8080/cancel-task/all
+
+###
 #특정 하나의 Running Task 멈춤
-POST http://localhost:8080/cancel-task/test-42b1d3db-d7ea-4bd7-9fc0-2ded1c3d598b
+POST http://localhost:8080/cancel-task/test-c42a399b-df74-41dc-9e26-3c39d48f880c
+
+###
+#파일에 있는 내용을 넣어서 메시지 전송
+POST http://localhost:8080/activemq/file/test2
+Content-Type: application/json
+
+{
+  "activeMQIp": "amqp://localhost:61616",
+  "id": "artemis",
+  "pw": "artemis",
+  "topic": "jms.topic.cep.output.9",
+  "tcName": "KE2D1Z11",
+  "delayTime": 3000,
+
+  "repeatBoolean": true,
+  "repeatTime": 35000,
+
+  "filePath": "c:/Project/",
+  "fileName": "KE2D1Z11_format.txt"
+}
+
+###
+POST http://localhost:8080/activemq/file-data/test
+Content-Type: application/json
+
+{
+  "activeMQIp": "amqp://localhost:61616",
+  "id": "artemis",
+  "pw": "artemis",
+  "topic": "jms.topic.cep.output.9",
+  "tcName": "KE2D1Z11",
+  "delayTime": 3000,
+
+  "filePath": "c:/Project/",
+  "formatFileName": "KE2D1Z11_format.txt",
+  "dataFileName": "KE2D1Z11.txt"
+}
 
 ###
 POST http://localhost:8080/activemq/test
@@ -67,6 +108,8 @@ Content-Type: application/json
   ]
 }
 
-#####
+#############
+POST http://localhost:8080/test
 
+###########
 #"activeMQIp": "amqp://172.28.79.32:61616",

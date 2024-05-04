@@ -30,5 +30,10 @@ public class TaskCancellationLogic {
     public void removeTask(String taskId) {
         cancellationTokens.remove(taskId);
     }
+
+    public void requestAllCancellation() {
+        // all tasks cancel
+        cancellationTokens.forEach((k, v) -> v.set(true));
+    }
 }
 
