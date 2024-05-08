@@ -24,16 +24,26 @@
 ### 3. Format(항목 id, type, random value 유무, random value 범위)
 
 ### REST API 종류
-- /activemq/{taskId} : taskId에 해당하는 task를 실행하여 activeMQ artemis에 message 전송
+- /activemq/{taskId} : ActiveMQ 메시지 전송
  > ex) http://localhost:8080/activemq/test
  > @PathVariable String taskId : taskId의 앞 부분
  > @RequestBody ActiveMQRequestDto activeMQRequestDto : activeMQ ip, id, pw 등 정보
  > return 값 : taskId-{UUID}
 
-- /cancel-task/{taskId} : taskId에 해당하는 task를 취소
+- /activemq/file/{taskId} : ActiveMQ 파일 메시지 전송(동일한 메시지 반복)
+ > ex) http://localhost:8080/activemq/file/{taskId}
+
+- /activemq/file-data/{taskId} : ActiveMQ 파일 & 데이터 메시지 전송(데이터 파일의 라인 수에 맞춰 메시지 전송. 형식 맞추기 필요!)
+ > ex) http://localhost:8080/activemq/file-data/{taskId}
+
+- GET : /running-task : 작동 중인 모든 task 조회
+ > ex) http://localhost:8080/running-task
+ > return 값 : ActiveMQTaskInfoDto(taskId-{UUID}, taskCancelApiUrl)
+
+- POST : /cancel-task/all : 모든 taskId에 해당 하는 task 취소
+ > ex) http://localhost:8080/cancel-task/all
+
+- POST : /cancel-task/{taskId} : 특정 taskId에 해당 하는 task 취소
  > ex) http://localhost:8080/cancel-task/test-{UUID}
  > @PathVariable String taskId : taskId-{UUID}
 
-- /running-task : 현재 실행중인 task 목록 조회
- > ex) http://localhost:8080/running-task
- > return 값 : ActiveMQTaskInfoDto(taskId-{UUID}, taskCancelApiUrl)

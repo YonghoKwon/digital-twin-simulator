@@ -36,7 +36,7 @@ public class ActiveMQRequestController {
         return "success : taskId : " + taskId;
     }
 
-    @ApiOperation(value = "ActiveMQ 파일 메시지 전송(동일한 메시지 여러 번)", notes = "ActiveMQ file message send")
+    @ApiOperation(value = "ActiveMQ 파일 메시지 전송(동일한 메시지 반복)", notes = "ActiveMQ file message send")
     @PostMapping("/activemq/file/{taskId}")
     public String activemqFile(
             @PathVariable String taskId,
@@ -60,17 +60,17 @@ public class ActiveMQRequestController {
         return "success : taskId : " + taskId;
     }
 
+//    @PostMapping("/activemq")
+////    public CompletableFuture<String> activemq(@RequestBody ActiveMQRequestDto activeMQRequestDto) {
+//    public String activemq(@RequestBody ActiveMQRequestDto activeMQRequestDto) {
+//        // get now time
+//        long now = System.currentTimeMillis();
+//        String flag = "activemq" + now;
+//
+//        activeMQRequestLogic.sendTopic(flag, activeMQRequestDto);
+//        return "success";
+////        return activeMQRequestLogic.sendTopic(flag, activeMQRequestDto)
+////                .thenApply(result -> "async success");
+//    }
 
-    @PostMapping("/activemq")
-//    public CompletableFuture<String> activemq(@RequestBody ActiveMQRequestDto activeMQRequestDto) {
-    public String activemq(@RequestBody ActiveMQRequestDto activeMQRequestDto) {
-        // get now time
-        long now = System.currentTimeMillis();
-        String flag = "activemq" + now;
-
-        activeMQRequestLogic.sendTopic(flag, activeMQRequestDto);
-        return "success";
-//        return activeMQRequestLogic.sendTopic(flag, activeMQRequestDto)
-//                .thenApply(result -> "async success");
-    }
 }
