@@ -1,26 +1,22 @@
 package com.dt.digitaltwinsimulator.controller;
 
-import com.dt.digitaltwinsimulator.dto.ActiveMQTaskInfoDto;
+import com.dt.digitaltwinsimulator.entity.dto.ActiveMQTaskInfoDto;
 import com.dt.digitaltwinsimulator.logic.ActiveMQTaskLogic;
 import com.dt.digitaltwinsimulator.logic.TaskCancellationLogic;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
 @Api(tags = "ActiveMQ Task Controller")
 @RestController
+@RequestMapping("/activemq/task")
 public class ActiveMQTaskController {
     private final ActiveMQTaskLogic activeMQTaskLogic;
     private final TaskCancellationLogic taskCancellationLogic;
 
-    @Autowired
     public ActiveMQTaskController(
             ActiveMQTaskLogic activeMQTaskLogic,
             TaskCancellationLogic taskCancellationLogic
@@ -30,7 +26,7 @@ public class ActiveMQTaskController {
     }
 
     @ApiOperation(value = "작동 중인 모든 task 조회", notes = "Get running tasks")
-    @GetMapping("/running-task")
+    @GetMapping("/running-tasks")
     public ResponseEntity<List<ActiveMQTaskInfoDto>> getRunningTasks() {
         List<ActiveMQTaskInfoDto> taskInfoList = activeMQTaskLogic.makeTaskInfoList();
 
@@ -38,7 +34,7 @@ public class ActiveMQTaskController {
     }
 
     @ApiOperation(value = "모든 taskId에 해당 하는 task 취소", notes = "cancel all tasks")
-    @PostMapping("/cancel-task/all")
+    @PostMapping("/cancel-tasks")
     public ResponseEntity<String> cancelAllTasks() {
         taskCancellationLogic.requestAllCancellation();
 

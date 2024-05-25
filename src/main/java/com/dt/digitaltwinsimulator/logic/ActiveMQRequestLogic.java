@@ -1,8 +1,8 @@
 package com.dt.digitaltwinsimulator.logic;
 
-import com.dt.digitaltwinsimulator.dto.ActiveMQRequestDto;
-import com.dt.digitaltwinsimulator.dto.ActiveMQRequestFileAndDataDto;
-import com.dt.digitaltwinsimulator.dto.ActiveMQRequestFileDto;
+import com.dt.digitaltwinsimulator.entity.dto.ActiveMQRequestDto;
+import com.dt.digitaltwinsimulator.entity.dto.ActiveMQRequestFileAndDataDto;
+import com.dt.digitaltwinsimulator.entity.dto.ActiveMQRequestFileDto;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -58,8 +58,8 @@ public class ActiveMQRequestLogic {
                         i++;
 
                         // 작업 취소 확인 로직
-                        String Cancelled = taskCancellation(taskId, sender, session);
-                        if (Cancelled != null) return Cancelled;
+                        String cancelled = taskCancellation(taskId, sender, session);
+                        if (cancelled != null) return cancelled;
 
                         // value count가 1개 이상일 때
                         if(!activeMQRequestDto.getValue().get(0).isEmpty()) {
@@ -76,8 +76,8 @@ public class ActiveMQRequestLogic {
                     session.close();
                 } else {
                     // 작업 취소 확인 로직
-                    String Cancelled = taskCancellation(taskId, sender, session);
-                    if (Cancelled != null) return Cancelled;
+                    String cancelled = taskCancellation(taskId, sender, session);
+                    if (cancelled != null) return cancelled;
 
                     // message creates in value count
                     messageCreateInValueCount(taskId, activeMQRequestDto, session, sender);
@@ -313,8 +313,8 @@ public class ActiveMQRequestLogic {
                                 i++;
 
                                 // 작업 취소 확인 로직
-                                String Cancelled = taskCancellation(taskId, sender, session);
-                                if (Cancelled != null) return Cancelled;
+                                String cancelled = taskCancellation(taskId, sender, session);
+                                if (cancelled != null) return cancelled;
 
                                 TextMessage message = session.createTextMessage();
 
@@ -406,8 +406,8 @@ public class ActiveMQRequestLogic {
                 // 데이터 라인 만큼 반복
                 for (String[] data : dataLines) {
                     // 작업 취소 확인 로직
-                    String Cancelled = taskCancellation(taskId, sender, session);
-                    if (Cancelled != null) return Cancelled;
+                    String cancelled = taskCancellation(taskId, sender, session);
+                    if (cancelled != null) return cancelled;
 
                     formatContent = originFormatContent;
                     Matcher matcher = dataPattern.matcher(formatContent);

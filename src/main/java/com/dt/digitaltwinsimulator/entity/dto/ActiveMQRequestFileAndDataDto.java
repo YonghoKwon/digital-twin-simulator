@@ -1,14 +1,11 @@
-package com.dt.digitaltwinsimulator.dto;
+package com.dt.digitaltwinsimulator.entity.dto;
 
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
 
-import java.util.List;
-import java.util.Map;
-
 /**
- * ActiveMQ Request(Normal) Dto
+ * ActiveMQ Request File Dto
  *
  * <blockquote><pre>
  * activeMQIp : activeMQ ip
@@ -18,17 +15,16 @@ import java.util.Map;
  * tcName : transaction name
  *
  * delayTime : The interval between the previous message and the next message
- * repeatBoolean : repeat or not
- * repeatTime : the number of repetitions
  *
- * format : tc format
- * value : tc data
+ * filePath : tc format & data file Path
+ * formatFileName : tc format file Name
+ * dataFileName : tc data file Name
  * </pre></blockquote>
  */
 @ToString
 @Getter
 @Setter
-public class ActiveMQRequestDto {
+public class ActiveMQRequestFileAndDataDto {
     private String activeMQIp;
     private String id;
     private String pw;
@@ -36,10 +32,8 @@ public class ActiveMQRequestDto {
     private String tcName;
 
     private int delayTime;
-    private boolean repeatBoolean;
-    private int repeatTime;
 
-    private List<Map<String, String>> format;
-    private List<Map<Integer, String>> value;
-
+    private String filePath;
+    private String formatFileName;
+    private String dataFileName;
 }

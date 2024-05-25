@@ -1,4 +1,4 @@
-package com.dt.digitaltwinsimulator.dto;
+package com.dt.digitaltwinsimulator.entity.dto;
 
 import lombok.Getter;
 import lombok.Setter;
