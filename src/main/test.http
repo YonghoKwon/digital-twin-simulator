@@ -1,18 +1,35 @@
 ###
+POST http://localhost:8080/api/db/connect/postgresql
+Content-Type: application/json
+
+{
+  "url": "jdbc:postgresql://localhost:5432/digitaltwindb?currentSchema=testdb",
+  "username": "postgres",
+  "password": "1234",
+  "driverClassName": "org.postgresql.Driver"
+}
+
+###
+GET http://localhost:8080/api/db/test-connection
+
+###
+GET http://localhost:8080/api/db/table
+
+###
 #All Running Task 조회
-GET http://localhost:8080/running-task
+GET http://localhost:8080/activemq/task/running-tasks
 
 ###
 #모든 Running Task 멈춤
-POST http://localhost:8080/cancel-task/all
+POST http://localhost:8080/activemq/task/cancel-tasks
 
 ###
 #특정 하나의 Running Task 멈춤
-POST http://localhost:8080/cancel-task/test-c42a399b-df74-41dc-9e26-3c39d48f880c
+POST http://localhost:8080/activemq/task/cancel-task/test-c42a399b-df74-41dc-9e26-3c39d48f880c
 
 ###
 #파일에 있는 내용을 넣어서 메시지 전송
-POST http://localhost:8080/activemq/file/test2
+POST http://localhost:8080/activemq/request/file/test2
 Content-Type: application/json
 
 {
@@ -31,7 +48,7 @@ Content-Type: application/json
 }
 
 ###
-POST http://localhost:8080/activemq/file-data/test
+POST http://localhost:8080/activemq/request/file-data/test
 Content-Type: application/json
 
 {
@@ -48,7 +65,7 @@ Content-Type: application/json
 }
 
 ###
-POST http://localhost:8080/activemq/test
+POST http://localhost:8080/activemq/request/test
 Content-Type: application/json
 
 {
@@ -79,37 +96,34 @@ Content-Type: application/json
 
 #####
 
-POST http://localhost:8080/activemq
-Content-Type: application/json
-
-{
-  "activeMQIp": "amqp://220.80.16.171:61616",
-  "id": "artemis",
-  "pw": "artemis",
-  "topic": "jms.topic.cep.output.9",
-  "tcName": "KE2D1Z11",
-  "delayTime": 2000,
-
-  "repeat": true,
-  "repeatTime": 5000,
-  "format": [
-    {
-      "dataId": "tagId, employeeId, employeeName, xCoordination, yCoordination, zCoordination",
-      "dataType": "String, Integer, String, Integer, Integer, Integer",
-      "random": false,
-      "randomCondition": "10, 10, 5, 3, 3, 3"
-    }
-  ],
-  "value": [
-    {
-      "0": "450517, 300076, 이정호, 105.97, 210.27, 1.5",
-      "1": "450517, 300076, 이정호, 103.97, 210.27, 4.5"
-    }
-  ]
-}
-
-#############
-POST http://localhost:8080/test
+#POST http://localhost:8080/activemq
+#Content-Type: application/json
+#
+#{
+#  "activeMQIp": "amqp://220.80.16.171:61616",
+#  "id": "artemis",
+#  "pw": "artemis",
+#  "topic": "jms.topic.cep.output.9",
+#  "tcName": "KE2D1Z11",
+#  "delayTime": 2000,
+#
+#  "repeat": true,
+#  "repeatTime": 5000,
+#  "format": [
+#    {
+#      "dataId": "tagId, employeeId, employeeName, xCoordination, yCoordination, zCoordination",
+#      "dataType": "String, Integer, String, Integer, Integer, Integer",
+#      "random": false,
+#      "randomCondition": "10, 10, 5, 3, 3, 3"
+#    }
+#  ],
+#  "value": [
+#    {
+#      "0": "450517, 300076, 이정호, 105.97, 210.27, 1.5",
+#      "1": "450517, 300076, 이정호, 103.97, 210.27, 4.5"
+#    }
+#  ]
+#}
 
 ###########
 #"activeMQIp": "amqp://172.28.79.32:61616",

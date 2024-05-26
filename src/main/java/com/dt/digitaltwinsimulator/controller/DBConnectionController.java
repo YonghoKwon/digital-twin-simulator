@@ -41,8 +41,6 @@ class DBConnectionController {
     public ResponseEntity<String> testConnection() {
         boolean success = dynamicDataSourceLogic.testConnection();
 
-        dataSourceLogic.testConnection();
-
         return success ? ResponseEntity.ok("Connection is valid") : ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Failed to connect to database");
     }
 
