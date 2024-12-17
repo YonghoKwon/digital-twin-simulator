@@ -18,6 +18,8 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Paths;
 import java.text.SimpleDateFormat;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.regex.Matcher;
@@ -397,7 +399,23 @@ public class ActiveMQRequestLogic {
 
                 // 데이터 파일에서 데이터 읽기, 각 라인을 배열로 변환
                 List<String[]> dataLines = java.nio.file.Files.lines(Paths.get(DATA_DIRECTORY + DATA_FILENAME))
-                        .map(line -> line.split(","))
+                        // .map(line -> line.split(","))
+                        .map(line -> {
+                            String[] parts = line.split(",");
+
+                            for (int i = 0; i < parts.length; i++) {
+                                // 마지막 요소가 날짜 형식인 경우 변환
+                                if (parts[i].matches("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\.\\d{3}")) {
+                                    DateTimeFormatter originalFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
+                                    DateTimeFormatter newFormatter = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
+
+                                    LocalDateTime dateTime = LocalDateTime.parse(parts[i], originalFormatter);
+                                    parts[i] = dateTime.format(newFormatter);
+                                }
+                            }
+
+                            return parts;
+                        })
                         .collect(Collectors.toList());
 
                 // 정규 표현식을 사용하여 플레이스홀더 찾기
@@ -434,6 +452,18 @@ public class ActiveMQRequestLogic {
                                 "\"MESSAGE_ID\": \"" + activeMQRequestFileAndDataDto.getTcName() + "\"," +
                                 "\"DATA_MAP\": {" +
                                     "\"" + nowString + "\":{" +
+                                        "\"transaction_code\": \"" + activeMQRequestFileAndDataDto.getTcName() + "\"," +
+                                        "\"works_code\": \"" + "K" + "\"," +
+                                        "\"sndr_inform_edit_pgm_id\": \"" + "" + "\"," +
+                                        "\"eai_interface_id\": \"" + "" + "\"," +
+                                        "\"interface_data_dir_actual_type\": \"" + "" + "\"," +
+                                        "\"interface_data_ocr_res_flag\": \"" + "" + "\"," +
+                                        "\"interface_data_send_seq\": \"" + "0" + "\"," +
+                                        "\"interface_data_upd_tp\": \"" + "" + "\"," +
+                                        "\"interface_data_t_len\": \"" + "760" + "\"," +
+                                        "\"attribute\": \"" + " " + "\"," +
+                                        "\"bsc_gw_data_attr\": \"" + " " + "\"," +
+                                        "\"it_com_eai_ifc_var_item_usg_f\": \"" + " " + "\"," +
                                         formatContent +
                                     "}" +
                                 "}" +
