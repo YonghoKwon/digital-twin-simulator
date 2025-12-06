@@ -346,7 +346,7 @@ public class ActiveMQRequestLogic {
                                         "}"
                                 );
 
-//                                log.info("message : " + prettyPrintUsingGlobalSetting(message.getText()));
+                                log.info("message : " + prettyPrintUsingGlobalSetting(message.getText()));
 
                                 // message send
                                 sender.send(message);
@@ -363,6 +363,8 @@ public class ActiveMQRequestLogic {
             } catch (JMSException e) {
                 throw new RuntimeException(e);
             } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            } catch (JsonProcessingException e) {
                 throw new RuntimeException(e);
             } finally {
                 taskCancellationLogic.removeTask(taskId);

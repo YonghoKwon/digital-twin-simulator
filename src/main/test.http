@@ -33,7 +33,7 @@ POST http://localhost:8080/activemq/request/file/test2
 Content-Type: application/json
 
 {
-  "activeMQIp": "amqp://localhost:61616",
+  "activeMQIp": "tcp://localhost:61616",
   "id": "artemis",
   "pw": "artemis",
   "topic": "jms.topic.cep.output.9",
