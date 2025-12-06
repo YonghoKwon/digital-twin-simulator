@@ -4,13 +4,13 @@ import com.dt.digitaltwinsimulator.entity.dto.ActiveMQRequestDto;
 import com.dt.digitaltwinsimulator.entity.dto.ActiveMQRequestFileAndDataDto;
 import com.dt.digitaltwinsimulator.entity.dto.ActiveMQRequestFileDto;
 import com.dt.digitaltwinsimulator.logic.ActiveMQRequestLogic;
-import io.swagger.annotations.Api;
-import io.swagger.annotations.ApiOperation;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
 
-@Api(tags = "ActiveMQ Request Controller")
+@Tag(name = "ActiveMQ Request Controller")
 @RestController
 @RequestMapping("/activemq/request")
 class ActiveMQRequestController {
@@ -23,7 +23,7 @@ class ActiveMQRequestController {
         this.activeMQRequestLogic = activeMQRequestLogic;
     }
 
-    @ApiOperation(value = "ActiveMQ 메시지 전송", notes = "ActiveMQ message send")
+    @Operation(summary = "ActiveMQ 메시지 전송", description = "ActiveMQ message send")
     @PostMapping("/{taskId}")
     public String activemqNormal(
             @PathVariable String taskId,
@@ -35,7 +35,7 @@ class ActiveMQRequestController {
         return "success : taskId : " + taskId;
     }
 
-    @ApiOperation(value = "ActiveMQ 파일 메시지 전송(동일한 메시지 반복)", notes = "ActiveMQ file message send")
+    @Operation(summary = "ActiveMQ 파일 메시지 전송(동일한 메시지 반복)", description =  "ActiveMQ file message send")
     @PostMapping("/file/{taskId}")
     public String activemqFile(
             @PathVariable String taskId,
@@ -47,7 +47,7 @@ class ActiveMQRequestController {
         return "success : taskId : " + taskId;
     }
 
-    @ApiOperation(value = "ActiveMQ 파일 & 데이터 메시지 전송(데이터 파일의 라인 수에 맞춰 메시지 전송. 형식 맞추기 필요!)", notes = "ActiveMQ file & data message send")
+    @Operation(summary = "ActiveMQ 파일 & 데이터 메시지 전송(데이터 파일의 라인 수에 맞춰 메시지 전송. 형식 맞추기 필요!)", description =  "ActiveMQ file & data message send")
     @PostMapping("/file-data/{taskId}")
     public String activemqFileAndData(
             @PathVariable String taskId,

@@ -9,11 +9,11 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.activemq.artemis.utils.RandomUtil;
 import org.apache.commons.lang3.RandomStringUtils;
-import org.apache.qpid.jms.JmsConnectionFactory;
+import org.apache.activemq.artemis.jms.client.ActiveMQConnectionFactory;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
-import javax.jms.*;
+import jakarta.jms.*;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Paths;
@@ -43,7 +43,7 @@ public class ActiveMQRequestLogic {
 
         return CompletableFuture.supplyAsync(() -> {
             // activeMQ connection
-            ConnectionFactory connectionFactory = new JmsConnectionFactory(activeMQRequestDto.getActiveMQIp());
+            ConnectionFactory connectionFactory = new ActiveMQConnectionFactory(activeMQRequestDto.getActiveMQIp());
 
             try(Connection connection = connectionFactory.createConnection(activeMQRequestDto.getId(), activeMQRequestDto.getPw())) {
                 connection.start();
@@ -289,7 +289,7 @@ public class ActiveMQRequestLogic {
 
         return CompletableFuture.supplyAsync(() -> {
             // activeMQ connection
-            ConnectionFactory connectionFactory = new JmsConnectionFactory(activeMQRequestFileDto.getActiveMQIp());
+            ConnectionFactory connectionFactory = new ActiveMQConnectionFactory(activeMQRequestFileDto.getActiveMQIp());
 
             try(Connection connection = connectionFactory.createConnection(activeMQRequestFileDto.getId(), activeMQRequestFileDto.getPw())) {
                 connection.start();
@@ -378,7 +378,7 @@ public class ActiveMQRequestLogic {
 
         return CompletableFuture.supplyAsync(() -> {
             // activeMQ connection
-            ConnectionFactory connectionFactory = new JmsConnectionFactory(activeMQRequestFileAndDataDto.getActiveMQIp());
+            ConnectionFactory connectionFactory = new ActiveMQConnectionFactory(activeMQRequestFileAndDataDto.getActiveMQIp());
 
             try(Connection connection = connectionFactory.createConnection(activeMQRequestFileAndDataDto.getId(), activeMQRequestFileAndDataDto.getPw())) {
                 connection.start();

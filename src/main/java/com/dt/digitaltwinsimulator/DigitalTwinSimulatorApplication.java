@@ -1,13 +1,8 @@
 package com.dt.digitaltwinsimulator;
 
-import com.dt.digitaltwinsimulator.logic.DynamicDataSourceLogic;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Primary;
 import org.springframework.scheduling.annotation.EnableAsync;
-
-import javax.sql.DataSource;
 
 @SpringBootApplication
 @EnableAsync

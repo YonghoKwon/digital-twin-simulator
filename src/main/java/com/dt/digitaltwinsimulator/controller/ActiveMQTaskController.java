@@ -3,14 +3,14 @@ package com.dt.digitaltwinsimulator.controller;
 import com.dt.digitaltwinsimulator.entity.dto.ActiveMQTaskInfoDto;
 import com.dt.digitaltwinsimulator.logic.ActiveMQTaskLogic;
 import com.dt.digitaltwinsimulator.logic.TaskCancellationLogic;
-import io.swagger.annotations.Api;
-import io.swagger.annotations.ApiOperation;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
-@Api(tags = "ActiveMQ Task Controller")
+@Tag(name = "ActiveMQ Task Controller")
 @RestController
 @RequestMapping("/activemq/task")
 public class ActiveMQTaskController {
@@ -25,7 +25,7 @@ public class ActiveMQTaskController {
         this.taskCancellationLogic = taskCancellationLogic;
     }
 
-    @ApiOperation(value = "작동 중인 모든 task 조회", notes = "Get running tasks")
+    @Operation(summary = "작동 중인 모든 task 조회", description =  "Get running tasks")
     @GetMapping("/running-tasks")
     public ResponseEntity<List<ActiveMQTaskInfoDto>> getRunningTasks() {
         List<ActiveMQTaskInfoDto> taskInfoList = activeMQTaskLogic.makeTaskInfoList();
@@ -33,7 +33,7 @@ public class ActiveMQTaskController {
         return ResponseEntity.ok(taskInfoList);
     }
 
-    @ApiOperation(value = "모든 taskId에 해당 하는 task 취소", notes = "cancel all tasks")
+    @Operation(summary = "모든 taskId에 해당 하는 task 취소", description =  "cancel all tasks")
     @PostMapping("/cancel-tasks")
     public ResponseEntity<String> cancelAllTasks() {
         taskCancellationLogic.requestAllCancellation();
@@ -41,7 +41,7 @@ public class ActiveMQTaskController {
         return ResponseEntity.ok("모든 작업 취소 요청됨");
     }
 
-    @ApiOperation(value = "특정 taskId에 해당 하는 task 취소", notes = "cancel task by taskId")
+    @Operation(summary = "특정 taskId에 해당 하는 task 취소", description =  "cancel task by taskId")
     @PostMapping("/cancel-task/{taskId}")
     public ResponseEntity<String> cancelTask(@PathVariable String taskId) {
         taskCancellationLogic.requestCancellation(taskId);
