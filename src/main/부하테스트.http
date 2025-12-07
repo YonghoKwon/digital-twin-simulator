@@ -16,12 +16,12 @@ Content-Type: application/json
   "delayTime": 1000,
 
   "repeatBoolean": true,
-  "repeatTime": 35000,
+  "repeatTime": 5000,
 
   "filePath": "c:/Project/",
   "fileName": "KE2D1Z11_format.txt",
 
-  "concurrentTasks": 1
+  "concurrentTasks": 2000
 }
 
 ###
