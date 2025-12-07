@@ -1,0 +1,47 @@
+###
+#모든 Running Task 멈춤
+POST http://localhost:8080/activemq/task/cancel-tasks
+
+###
+#파일에 있는 내용을 넣어서 메시지 전송
+POST http://localhost:8080/activemq/request/file/test1
+Content-Type: application/json
+
+{
+  "activeMQIp": "tcp://localhost:61616",
+  "id": "artemis",
+  "pw": "artemis",
+  "topic": "topic.cep.output.0",
+  "tcName": "KP1D0012",
+  "delayTime": 1000,
+
+  "repeatBoolean": true,
+  "repeatTime": 35000,
+
+  "filePath": "c:/Project/",
+  "fileName": "KE2D1Z11_format.txt",
+
+  "concurrentTasks": 1000
+}
+
+###
+
+POST http://localhost:8080/activemq/request/file/test2
+Content-Type: application/json
+
+{
+"activeMQIp": "tcp://localhost:61616",
+"id": "artemis",
+"pw": "artemis",
+"topic": "topic.cep.output.0",
+"tcName": "KP1D0012",
+"delayTime": 1000,
+
+"repeatBoolean": true,
+"repeatTime": 35000,
+
+"filePath": "c:/Project/",
+"fileName": "KE2D1Z11_format2.txt",
+
+"concurrentTasks": 1000
+}

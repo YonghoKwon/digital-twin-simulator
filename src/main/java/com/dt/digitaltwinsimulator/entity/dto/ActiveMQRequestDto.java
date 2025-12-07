@@ -23,6 +23,8 @@ import java.util.Map;
  *
  * format : tc format
  * value : tc data
+ *
+ * concurrentUsers : Number of concurrent tasks for load testing
  * </pre></blockquote>
  */
 @ToString
@@ -42,4 +44,5 @@ public class ActiveMQRequestDto {
     private List<Map<String, String>> format;
     private List<Map<Integer, String>> value;
 
+    private int concurrentTasks = 1;
 }

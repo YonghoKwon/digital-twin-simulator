@@ -20,6 +20,8 @@ import lombok.ToString;
  *
  * filePath : tc format & data file Path
  * fileName : tc format & data file Name
+ *
+ * concurrentUsers : Number of concurrent tasks for load testing
  * </pre></blockquote>
  */
 @ToString
@@ -38,4 +40,6 @@ public class ActiveMQRequestFileDto {
 
     private String filePath;
     private String fileName;
+
+    private int concurrentTasks = 1;
 }

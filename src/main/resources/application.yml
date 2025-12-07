@@ -16,7 +16,9 @@ spring:
       enabled: true           # H2 Console 사용 여부
       path: /h2-console       # H2 Console 접속 주소
 
-
+  threads:
+    virtual:
+      enabled: true  # Java 21 가상 스레드 활성화
 
 server:
   port: 8080

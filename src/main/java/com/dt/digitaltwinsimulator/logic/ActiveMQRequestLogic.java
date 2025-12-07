@@ -36,67 +36,65 @@ public class ActiveMQRequestLogic {
         this.taskCancellationLogic = taskCancellationLogic;
     }
 
-    @Async
+    @Async("threadPoolTaskExecutor")
     public CompletableFuture<String> sendTopic(String taskId, ActiveMQRequestDto activeMQRequestDto) {
         log.info("taskId : " + taskId);
         taskCancellationLogic.registerTask(taskId);
 
-        return CompletableFuture.supplyAsync(() -> {
-            // activeMQ connection
-            ConnectionFactory connectionFactory = new ActiveMQConnectionFactory(activeMQRequestDto.getActiveMQIp());
+        // activeMQ connection
+        ConnectionFactory connectionFactory = new ActiveMQConnectionFactory(activeMQRequestDto.getActiveMQIp());
 
-            try(Connection connection = connectionFactory.createConnection(activeMQRequestDto.getId(), activeMQRequestDto.getPw())) {
-                connection.start();
+        try(Connection connection = connectionFactory.createConnection(activeMQRequestDto.getId(), activeMQRequestDto.getPw())) {
+            connection.start();
 
-                // session, topic, producer create
-                Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
-                Topic topic = session.createTopic(activeMQRequestDto.getTopic());
-                MessageProducer sender = session.createProducer(topic);
+            // session, topic, producer create
+            Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+            Topic topic = session.createTopic(activeMQRequestDto.getTopic());
+            MessageProducer sender = session.createProducer(topic);
 
-                // 분기 처리.. 랜덤 항목이 true면 반복시간만큼 message 만들어서 send
-                if(activeMQRequestDto.isRepeatBoolean()) {
-                    int i = 0;
-                    while (i < (activeMQRequestDto.getRepeatTime() / 1000) ) {
-                        i++;
+            // 분기 처리.. 랜덤 항목이 true면 반복시간만큼 message 만들어서 send
+            if(activeMQRequestDto.isRepeatBoolean()) {
+                int i = 0;
+                while (i < (activeMQRequestDto.getRepeatTime() / 1000) ) {
+                    i++;
 
-                        // 작업 취소 확인 로직
-                        String cancelled = taskCancellation(taskId, sender, session);
-                        if (cancelled != null) return cancelled;
-
-                        // value count가 1개 이상일 때
-                        if(!activeMQRequestDto.getValue().get(0).isEmpty()) {
-                            // message creates in value count
-                            messageCreateInValueCount(taskId, activeMQRequestDto, session, sender);
-                        } else {
-                            // message creates in random
-                            messageCreateRandom(taskId, activeMQRequestDto, session, sender);
-                        }
-
-                    }
-                    // connection close;
-                    sender.close();
-                    session.close();
-                } else {
                     // 작업 취소 확인 로직
                     String cancelled = taskCancellation(taskId, sender, session);
-                    if (cancelled != null) return cancelled;
+                    if (cancelled != null) return CompletableFuture.completedFuture(cancelled);
 
-                    // message creates in value count
-                    messageCreateInValueCount(taskId, activeMQRequestDto, session, sender);
+                    // value count가 1개 이상일 때
+                    if(!activeMQRequestDto.getValue().get(0).isEmpty()) {
+                        // message creates in value count
+                        messageCreateInValueCount(taskId, activeMQRequestDto, session, sender);
+                    } else {
+                        // message creates in random
+                        messageCreateRandom(taskId, activeMQRequestDto, session, sender);
+                    }
 
-                    // connection close;
-                    sender.close();
-                    session.close();
                 }
+                // connection close;
+                sender.close();
+                session.close();
+            } else {
+                // 작업 취소 확인 로직
+                String cancelled = taskCancellation(taskId, sender, session);
+                if (cancelled != null) return CompletableFuture.completedFuture(cancelled);
 
-            } catch (JMSException | InterruptedException e) {
-                throw new RuntimeException(e);
-            } finally {
-                taskCancellationLogic.removeTask(taskId);
+                // message creates in value count
+                messageCreateInValueCount(taskId, activeMQRequestDto, session, sender);
+
+                // connection close;
+                sender.close();
+                session.close();
             }
 
-            return "success";
-        });
+        } catch (JMSException | InterruptedException e) {
+            throw new RuntimeException(e);
+        } finally {
+            taskCancellationLogic.removeTask(taskId);
+        }
+
+        return CompletableFuture.completedFuture("success");
     }
 
     private String taskCancellation(String taskId, MessageProducer sender, Session session) throws JMSException {
@@ -283,219 +281,216 @@ public class ActiveMQRequestLogic {
         return mapper.writeValueAsString(jsonObject);
     }
 
+    @Async("threadPoolTaskExecutor")
     public CompletableFuture<String> sendFileTopic(String taskId, ActiveMQRequestFileDto activeMQRequestFileDto) {
         log.info("taskId : " + taskId);
         taskCancellationLogic.registerTask(taskId);
 
-        return CompletableFuture.supplyAsync(() -> {
-            // activeMQ connection
-            ConnectionFactory connectionFactory = new ActiveMQConnectionFactory(activeMQRequestFileDto.getActiveMQIp());
+        ConnectionFactory connectionFactory = new ActiveMQConnectionFactory(activeMQRequestFileDto.getActiveMQIp());
 
-            try(Connection connection = connectionFactory.createConnection(activeMQRequestFileDto.getId(), activeMQRequestFileDto.getPw())) {
-                connection.start();
+        try(Connection connection = connectionFactory.createConnection(activeMQRequestFileDto.getId(), activeMQRequestFileDto.getPw())) {
+            connection.start();
 
-                // session, topic, producer create
-                Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
-                Topic topic = session.createTopic(activeMQRequestFileDto.getTopic());
-                MessageProducer sender = session.createProducer(topic);
+            // session, topic, producer create
+            Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+            Topic topic = session.createTopic(activeMQRequestFileDto.getTopic());
+            MessageProducer sender = session.createProducer(topic);
 
-                // local file read
-                String DATA_DIRECTORY = activeMQRequestFileDto.getFilePath();
-                File dir = new File(DATA_DIRECTORY);
+            // local file read
+            String DATA_DIRECTORY = activeMQRequestFileDto.getFilePath();
+            File dir = new File(DATA_DIRECTORY);
 
-                String[] filenames = dir.list();
-                // When filename is in filenames, send message for contents in file
-                for (String filename : Objects.requireNonNull(filenames)) {
-                    if(Objects.equals(filename, activeMQRequestFileDto.getFileName())) {
+            String[] filenames = dir.list();
+            // When filename is in filenames, send message for contents in file
+            for (String filename : Objects.requireNonNull(filenames)) {
+                if(Objects.equals(filename, activeMQRequestFileDto.getFileName())) {
 
-                        // 반복처리 플래그가 True면 반복시간만큼 message 만들어서 send
-                        if(activeMQRequestFileDto.isRepeatBoolean()) {
-                            int i = 0;
-                            while (i < (activeMQRequestFileDto.getRepeatTime() / 1000) ) {
-                                i++;
+                    // 반복처리 플래그가 True면 반복시간만큼 message 만들어서 send
+                    if(activeMQRequestFileDto.isRepeatBoolean()) {
+                        int i = 0;
+                        while (i < (activeMQRequestFileDto.getRepeatTime() / 1000) ) {
+                            i++;
 
-                                // 작업 취소 확인 로직
-                                String cancelled = taskCancellation(taskId, sender, session);
-                                if (cancelled != null) return cancelled;
+                            // 작업 취소 확인 로직
+                            String cancelled = taskCancellation(taskId, sender, session);
+                            if (cancelled != null) return CompletableFuture.completedFuture(cancelled);
 
-                                TextMessage message = session.createTextMessage();
+                            TextMessage message = session.createTextMessage();
 
-                                Date now = new Date();
-                                Locale currentLocale = new Locale("KOREAN", "KOREA");
-                                String pattern = "yyyyMMddHHmmss";
-                                SimpleDateFormat simpleDateFormat = new SimpleDateFormat(pattern, currentLocale);
-                                String nowString = simpleDateFormat.format(now);
+                            Date now = new Date();
+                            Locale currentLocale = new Locale("KOREAN", "KOREA");
+                            String pattern = "yyyyMMddHHmmss";
+                            SimpleDateFormat simpleDateFormat = new SimpleDateFormat(pattern, currentLocale);
+                            String nowString = simpleDateFormat.format(now);
 
-                                // file read
-                                String fileContents = "";
-                                try {
-                                    fileContents = new String(java.nio.file.Files.readAllBytes(new File(DATA_DIRECTORY + filename).toPath()));
-                                } catch (IOException e) {
-                                    e.printStackTrace();
-                                }
-
-                                message.setText(
-                                        "{" +
-                                            "\"CREATE_TIMESTAMP\": \"" + nowString + "\"," +
-                                            "\"MESSAGE_ID\": \"" + activeMQRequestFileDto.getTcName() + "\"," +
-                                            "\"DATA_MAP\": {" +
-                                                "\"" + nowString + "\":{" +
-                                                    fileContents +
-                                                "}" +
-                                            "}" +
-                                        "}"
-                                );
-
-                                log.info("message : " + prettyPrintUsingGlobalSetting(message.getText()));
-
-                                // message send
-                                sender.send(message);
-                                Thread.sleep(activeMQRequestFileDto.getDelayTime());
+                            // file read
+                            String fileContents = "";
+                            try {
+                                fileContents = new String(java.nio.file.Files.readAllBytes(new File(DATA_DIRECTORY + filename).toPath()));
+                            } catch (IOException e) {
+                                e.printStackTrace();
                             }
+
+                            message.setText(
+                                    "{" +
+                                        "\"CREATE_TIMESTAMP\": \"" + nowString + "\"," +
+                                        "\"MESSAGE_ID\": \"" + activeMQRequestFileDto.getTcName() + "\"," +
+                                        "\"DATA_MAP\": {" +
+                                            "\"" + nowString + "\":{" +
+                                                "\"USER_ID\": \"" + taskId + "\"," +
+                                                fileContents +
+                                            "}" +
+                                        "}" +
+                                    "}"
+                            );
+
+//                            log.info("message taskId : " + taskId);
+//                            log.info("message : " + prettyPrintUsingGlobalSetting(message.getText()));
+
+                            // message send
+                            sender.send(message);
+                            Thread.sleep(activeMQRequestFileDto.getDelayTime());
                         }
                     }
                 }
-
-                // connection close;
-                sender.close();
-                session.close();
-
-            } catch (JMSException e) {
-                throw new RuntimeException(e);
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-            } catch (JsonProcessingException e) {
-                throw new RuntimeException(e);
-            } finally {
-                taskCancellationLogic.removeTask(taskId);
             }
 
-            return "success";
-        });
+            // connection close;
+            sender.close();
+            session.close();
+
+        } catch (JMSException e) {
+            throw new RuntimeException(e);
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        } finally {
+            taskCancellationLogic.removeTask(taskId);
+        }
+
+        return CompletableFuture.completedFuture("success");
     }
 
+    @Async("threadPoolTaskExecutor")
     public CompletableFuture<String> sendFileAndDataTopic(String taskId, ActiveMQRequestFileAndDataDto activeMQRequestFileAndDataDto) {
         log.info("taskId : " + taskId);
         taskCancellationLogic.registerTask(taskId);
 
-        return CompletableFuture.supplyAsync(() -> {
-            // activeMQ connection
-            ConnectionFactory connectionFactory = new ActiveMQConnectionFactory(activeMQRequestFileAndDataDto.getActiveMQIp());
+        // activeMQ connection
+        ConnectionFactory connectionFactory = new ActiveMQConnectionFactory(activeMQRequestFileAndDataDto.getActiveMQIp());
 
-            try(Connection connection = connectionFactory.createConnection(activeMQRequestFileAndDataDto.getId(), activeMQRequestFileAndDataDto.getPw())) {
-                connection.start();
+        try(Connection connection = connectionFactory.createConnection(activeMQRequestFileAndDataDto.getId(), activeMQRequestFileAndDataDto.getPw())) {
+            connection.start();
 
-                // session, topic, producer create
-                Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
-                Topic topic = session.createTopic(activeMQRequestFileAndDataDto.getTopic());
-                MessageProducer sender = session.createProducer(topic);
+            // session, topic, producer create
+            Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+            Topic topic = session.createTopic(activeMQRequestFileAndDataDto.getTopic());
+            MessageProducer sender = session.createProducer(topic);
 
-                // local file read
-                String DATA_DIRECTORY = activeMQRequestFileAndDataDto.getFilePath();
-                String FORMAT_FILENAME = activeMQRequestFileAndDataDto.getFormatFileName();
-                String DATA_FILENAME = activeMQRequestFileAndDataDto.getDataFileName();
+            // local file read
+            String DATA_DIRECTORY = activeMQRequestFileAndDataDto.getFilePath();
+            String FORMAT_FILENAME = activeMQRequestFileAndDataDto.getFormatFileName();
+            String DATA_FILENAME = activeMQRequestFileAndDataDto.getDataFileName();
 
-                // 포멧 파일에서 내용 읽기
-                String formatContent = new String(java.nio.file.Files.readAllBytes(new File(DATA_DIRECTORY + FORMAT_FILENAME).toPath()));
-                String originFormatContent = formatContent;
+            // 포멧 파일에서 내용 읽기
+            String formatContent = new String(java.nio.file.Files.readAllBytes(new File(DATA_DIRECTORY + FORMAT_FILENAME).toPath()));
+            String originFormatContent = formatContent;
 
-                // 데이터 파일에서 데이터 읽기, 각 라인을 배열로 변환
-                List<String[]> dataLines = java.nio.file.Files.lines(Paths.get(DATA_DIRECTORY + DATA_FILENAME))
-                        // .map(line -> line.split(","))
-                        .map(line -> {
-                            String[] parts = line.split(",");
+            // 데이터 파일에서 데이터 읽기, 각 라인을 배열로 변환
+            List<String[]> dataLines = java.nio.file.Files.lines(Paths.get(DATA_DIRECTORY + DATA_FILENAME))
+                    // .map(line -> line.split(","))
+                    .map(line -> {
+                        String[] parts = line.split(",");
 
-                            for (int i = 0; i < parts.length; i++) {
-                                // 마지막 요소가 날짜 형식인 경우 변환
-                                if (parts[i].matches("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\.\\d{3}")) {
-                                    DateTimeFormatter originalFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
-                                    DateTimeFormatter newFormatter = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
+                        for (int i = 0; i < parts.length; i++) {
+                            // 마지막 요소가 날짜 형식인 경우 변환
+                            if (parts[i].matches("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\.\\d{3}")) {
+                                DateTimeFormatter originalFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
+                                DateTimeFormatter newFormatter = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
 
-                                    LocalDateTime dateTime = LocalDateTime.parse(parts[i], originalFormatter);
-                                    parts[i] = dateTime.format(newFormatter);
-                                }
+                                LocalDateTime dateTime = LocalDateTime.parse(parts[i], originalFormatter);
+                                parts[i] = dateTime.format(newFormatter);
                             }
+                        }
 
-                            return parts;
-                        })
-                        .collect(Collectors.toList());
+                        return parts;
+                    })
+                    .collect(Collectors.toList());
 
-                // 정규 표현식을 사용하여 플레이스홀더 찾기
-                Pattern dataPattern = Pattern.compile("\\{\\{.*?\\}\\}");
+            // 정규 표현식을 사용하여 플레이스홀더 찾기
+            Pattern dataPattern = Pattern.compile("\\{\\{.*?\\}\\}");
 
-                // 데이터 라인 만큼 반복
-                for (String[] data : dataLines) {
-                    // 작업 취소 확인 로직
-                    String cancelled = taskCancellation(taskId, sender, session);
-                    if (cancelled != null) return cancelled;
+            // 데이터 라인 만큼 반복
+            for (String[] data : dataLines) {
+                // 작업 취소 확인 로직
+                String cancelled = taskCancellation(taskId, sender, session);
+                if (cancelled != null) return CompletableFuture.completedFuture(cancelled);
 
-                    formatContent = originFormatContent;
-                    Matcher matcher = dataPattern.matcher(formatContent);
-                    StringBuffer result = new StringBuffer();
+                formatContent = originFormatContent;
+                Matcher matcher = dataPattern.matcher(formatContent);
+                StringBuffer result = new StringBuffer();
 
-                    int dataIndex = 0;
-                    while (matcher.find() && dataIndex < data.length) {
-                        matcher.appendReplacement(result, Matcher.quoteReplacement(data[dataIndex++]));
-                    }
-                    matcher.appendTail(result);
-                    formatContent = result.toString();  // 업데이트된 결과로 템플릿 내용 갱신
+                int dataIndex = 0;
+                while (matcher.find() && dataIndex < data.length) {
+                    matcher.appendReplacement(result, Matcher.quoteReplacement(data[dataIndex++]));
+                }
+                matcher.appendTail(result);
+                formatContent = result.toString();  // 업데이트된 결과로 템플릿 내용 갱신
 
-                    TextMessage message = session.createTextMessage();
+                TextMessage message = session.createTextMessage();
 
-                    Date now = new Date();
-                    Locale currentLocale = new Locale("KOREAN", "KOREA");
-                    String pattern = "yyyyMMddHHmmss";
-                    SimpleDateFormat simpleDateFormat = new SimpleDateFormat(pattern, currentLocale);
-                    String nowString = simpleDateFormat.format(now);
+                Date now = new Date();
+                Locale currentLocale = new Locale("KOREAN", "KOREA");
+                String pattern = "yyyyMMddHHmmss";
+                SimpleDateFormat simpleDateFormat = new SimpleDateFormat(pattern, currentLocale);
+                String nowString = simpleDateFormat.format(now);
 
-                    message.setText(
-                            "{" +
-                                "\"CREATE_TIMESTAMP\": \"" + nowString + "\"," +
-                                "\"MESSAGE_ID\": \"" + activeMQRequestFileAndDataDto.getTcName() + "\"," +
-                                "\"DATA_MAP\": {" +
-                                    "\"" + nowString + "\":{" +
-                                        "\"transaction_code\": \"" + activeMQRequestFileAndDataDto.getTcName() + "\"," +
-                                        "\"works_code\": \"" + "K" + "\"," +
-                                        "\"sndr_inform_edit_pgm_id\": \"" + "" + "\"," +
-                                        "\"eai_interface_id\": \"" + "" + "\"," +
-                                        "\"interface_data_dir_actual_type\": \"" + "" + "\"," +
-                                        "\"interface_data_ocr_res_flag\": \"" + "" + "\"," +
-                                        "\"interface_data_send_seq\": \"" + "0" + "\"," +
-                                        "\"interface_data_upd_tp\": \"" + "" + "\"," +
-                                        "\"interface_data_t_len\": \"" + "760" + "\"," +
-                                        "\"attribute\": \"" + " " + "\"," +
-                                        "\"bsc_gw_data_attr\": \"" + " " + "\"," +
-                                        "\"it_com_eai_ifc_var_item_usg_f\": \"" + " " + "\"," +
-                                        formatContent +
-                                    "}" +
+                message.setText(
+                        "{" +
+                            "\"CREATE_TIMESTAMP\": \"" + nowString + "\"," +
+                            "\"MESSAGE_ID\": \"" + activeMQRequestFileAndDataDto.getTcName() + "\"," +
+                            "\"DATA_MAP\": {" +
+                                "\"" + nowString + "\":{" +
+                                    "\"transaction_code\": \"" + activeMQRequestFileAndDataDto.getTcName() + "\"," +
+                                    "\"works_code\": \"" + "K" + "\"," +
+                                    "\"sndr_inform_edit_pgm_id\": \"" + "" + "\"," +
+                                    "\"eai_interface_id\": \"" + "" + "\"," +
+                                    "\"interface_data_dir_actual_type\": \"" + "" + "\"," +
+                                    "\"interface_data_ocr_res_flag\": \"" + "" + "\"," +
+                                    "\"interface_data_send_seq\": \"" + "0" + "\"," +
+                                    "\"interface_data_upd_tp\": \"" + "" + "\"," +
+                                    "\"interface_data_t_len\": \"" + "760" + "\"," +
+                                    "\"attribute\": \"" + " " + "\"," +
+                                    "\"bsc_gw_data_attr\": \"" + " " + "\"," +
+                                    "\"it_com_eai_ifc_var_item_usg_f\": \"" + " " + "\"," +
+                                    formatContent +
                                 "}" +
-                            "}"
-                    );
+                            "}" +
+                        "}"
+                );
 
 //                    log.info("message : " + prettyPrintUsingGlobalSetting(message.getText()));
 
-                    // message send
-                    sender.send(message);
-                    Thread.sleep(activeMQRequestFileAndDataDto.getDelayTime());
-                }
-
-                // connection close;
-                sender.close();
-                session.close();
-
-            } catch (JMSException e) {
-                throw new RuntimeException(e);
-            } catch (JsonProcessingException e) {
-                throw new RuntimeException(e);
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            } finally {
-                taskCancellationLogic.removeTask(taskId);
+                // message send
+                sender.send(message);
+                Thread.sleep(activeMQRequestFileAndDataDto.getDelayTime());
             }
 
-            return "success";
-        });
+            // connection close;
+            sender.close();
+            session.close();
+
+        } catch (JMSException e) {
+            throw new RuntimeException(e);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        } finally {
+            taskCancellationLogic.removeTask(taskId);
+        }
+
+        return CompletableFuture.completedFuture("success");
     }
 }

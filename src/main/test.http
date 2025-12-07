@@ -3,10 +3,21 @@ POST http://localhost:8080/api/db/connect/postgresql
 Content-Type: application/json
 
 {
-  "url": "jdbc:postgresql://localhost:5432/digitaltwindb?currentSchema=testdb",
+  "url": "jdbc:postgresql://localhost:5432/postgres",
   "username": "postgres",
   "password": "1234",
   "driverClassName": "org.postgresql.Driver"
+}
+
+###
+POST http://localhost:8080/api/db/connect/mysql
+Content-Type: application/json
+
+{
+  "url": "jdbc:mysql://localhost:3306/springboot?currentSchema=testdb",
+  "username": "root",
+  "password": "1234",
+  "driverClassName": "com.mysql.cj.jdbc.Driver"
 }
 
 ###
@@ -36,15 +47,17 @@ Content-Type: application/json
   "activeMQIp": "tcp://localhost:61616",
   "id": "artemis",
   "pw": "artemis",
-  "topic": "jms.topic.cep.output.9",
-  "tcName": "KE2D1Z11",
-  "delayTime": 3000,
+  "topic": "topic.cep.output.0",
+  "tcName": "KP1D0012",
+  "delayTime": 1000,
 
   "repeatBoolean": true,
   "repeatTime": 35000,
 
   "filePath": "c:/Project/",
-  "fileName": "KE2D1Z11_format.txt"
+  "fileName": "KE2D1Z11_format.txt",
+
+  "concurrentTasks": 10
 }
 
 ###
@@ -55,13 +68,15 @@ Content-Type: application/json
   "activeMQIp": "amqp://localhost:61616",
   "id": "artemis",
   "pw": "artemis",
-  "topic": "jms.topic.cep.output.9",
-  "tcName": "KE2D1Z11",
-  "delayTime": 3000,
+  "topic": "topic.cep.output.0",
+  "tcName": "KE2D1Z12",
+  "delayTime": 1000,
 
   "filePath": "c:/Project/",
   "formatFileName": "KE2D1Z11_format.txt",
-  "dataFileName": "KE2D1Z11.txt"
+  "dataFileName": "KE2D1Z11.txt",
+
+  "concurrentTasks": 10
 }
 
 ###
@@ -91,7 +106,9 @@ Content-Type: application/json
       "0": "450517, 300076, 이정호, 105.97, 210.27, 1.5",
       "1": "450517, 300076, 이정호, 103.97, 210.27, 4.5"
     }
-  ]
+  ],
+
+  "concurrentTasks": 10
 }
 
 #####
