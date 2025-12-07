@@ -21,7 +21,7 @@ Content-Type: application/json
   "filePath": "c:/Project/",
   "fileName": "KE2D1Z11_format.txt",
 
-  "concurrentTasks": 1000
+  "concurrentTasks": 1
 }
 
 ###
