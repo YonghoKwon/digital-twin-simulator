@@ -10,6 +10,7 @@ public class ActiveMqBrokerProperties {
     private String username = "artemis";
     private String password = "artemis";
     private String topic = "topic.cep.output.0";
+    private int sessionCacheSize = 100;
 
     public String getBrokerUrl() {
         return brokerUrl;
@@ -41,5 +42,13 @@ public class ActiveMqBrokerProperties {
 
     public void setTopic(String topic) {
         this.topic = topic;
+    }
+
+    public int getSessionCacheSize() {
+        return sessionCacheSize;
+    }
+
+    public void setSessionCacheSize(int sessionCacheSize) {
+        this.sessionCacheSize = sessionCacheSize;
     }
 }
