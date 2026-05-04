@@ -80,7 +80,7 @@ public class ActiveMQRequestLogic {
                     sendValueMessages(taskId, activeMQRequestDto, session, sender, formatDefinition, valueRows, messageCount);
                 }
             }
-        } catch (JMSException e) {
+        } catch (JMSException | JsonProcessingException e) {
             throw new RuntimeException(e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
