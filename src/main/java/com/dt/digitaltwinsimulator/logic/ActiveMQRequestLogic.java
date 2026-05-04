@@ -198,17 +198,25 @@ public class ActiveMQRequestLogic {
                 Path dataFilePath = resolveFile(activeMQRequestFileAndDataDto.getFilePath(), activeMQRequestFileAndDataDto.getDataFileName());
                 String originFormatContent = Files.readString(formatFilePath, StandardCharsets.UTF_8);
                 List<String[]> dataLines = readDataLines(dataFilePath);
+                int repeatCount = resolveMessageCount(
+                        activeMQRequestFileAndDataDto.isRepeatBoolean(),
+                        activeMQRequestFileAndDataDto.getRepeatTime(),
+                        activeMQRequestFileAndDataDto.getDelayTime(),
+                        activeMQRequestFileAndDataDto.getMessageCount()
+                );
 
-                for (int rowIndex = 0; rowIndex < dataLines.size(); rowIndex++) {
-                    if (isCancelled(taskId)) {
-                        return CompletableFuture.completedFuture("Cancelled");
+                for (int repeatIndex = 0; repeatIndex < repeatCount; repeatIndex++) {
+                    for (int rowIndex = 0; rowIndex < dataLines.size(); rowIndex++) {
+                        if (isCancelled(taskId)) {
+                            return CompletableFuture.completedFuture("Cancelled");
+                        }
+
+                        String renderedFormat = renderTemplate(originFormatContent, dataLines.get(rowIndex));
+                        TextMessage message = session.createTextMessage(createFileDataMessage(activeMQRequestFileAndDataDto.getTcName(), renderedFormat));
+                        log.info("{} file-data message[repeat={}, row={}] : {}", taskId, repeatIndex, rowIndex, message.getText());
+                        sender.send(message);
+                        sleep(activeMQRequestFileAndDataDto.getDelayTime());
                     }
-
-                    String renderedFormat = renderTemplate(originFormatContent, dataLines.get(rowIndex));
-                    TextMessage message = session.createTextMessage(createFileDataMessage(activeMQRequestFileAndDataDto.getTcName(), renderedFormat));
-                    log.info("{} file-data message[row={}] : {}", taskId, rowIndex, message.getText());
-                    sender.send(message);
-                    sleep(activeMQRequestFileAndDataDto.getDelayTime());
                 }
             }
         } catch (JMSException | IOException e) {
