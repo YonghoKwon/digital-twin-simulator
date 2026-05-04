@@ -18,8 +18,12 @@ public class TaskExecutionStatusLogic {
     @Value("${server.port:8080}")
     private String serverPort;
 
+    @Value("${simulator.task.max-history:10000}")
+    private int maxHistory;
+
     public void markRunning(String taskId) {
         records.put(taskId, new TaskExecutionRecord(taskId, TaskExecutionStatus.RUNNING, LocalDateTime.now(), null, new AtomicLong(0), ""));
+        trimHistoryIfNeeded();
     }
 
     public void incrementSentCount(String taskId) {
@@ -68,6 +72,23 @@ public class TaskExecutionStatusLogic {
             }
             return new TaskExecutionRecord(taskId, status, oldRecord.startedAt(), LocalDateTime.now(), oldRecord.sentCount(), message);
         });
+        trimHistoryIfNeeded();
+    }
+
+    private void trimHistoryIfNeeded() {
+        int safeMaxHistory = Math.max(100, maxHistory);
+        if (records.size() <= safeMaxHistory) {
+            return;
+        }
+
+        int removeCount = records.size() - safeMaxHistory;
+        records.entrySet().stream()
+                .filter(entry -> entry.getValue().status() != TaskExecutionStatus.RUNNING)
+                .sorted(Comparator.comparing(entry -> entry.getValue().startedAt()))
+                .limit(removeCount)
+                .map(entry -> entry.getKey())
+                .toList()
+                .forEach(records::remove);
     }
 
     private TaskExecutionInfoDto toDto(TaskExecutionRecord record) {
