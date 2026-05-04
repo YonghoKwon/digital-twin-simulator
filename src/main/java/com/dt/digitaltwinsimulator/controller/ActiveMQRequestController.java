@@ -5,6 +5,7 @@ import com.dt.digitaltwinsimulator.entity.dto.ActiveMQRequestFileAndDataDto;
 import com.dt.digitaltwinsimulator.entity.dto.ActiveMQRequestFileDto;
 import com.dt.digitaltwinsimulator.entity.dto.DryRunResponseDto;
 import com.dt.digitaltwinsimulator.entity.dto.JmsTemplateLoadTestRequestDto;
+import com.dt.digitaltwinsimulator.entity.dto.LoadTestResultDto;
 import com.dt.digitaltwinsimulator.logic.ActiveMQRequestLogic;
 import com.dt.digitaltwinsimulator.logic.JmsTemplateLoadTestLogic;
 import io.swagger.v3.oas.annotations.Operation;
@@ -56,14 +57,13 @@ class ActiveMQRequestController {
         return activeMQRequestLogic.dryRunTopic(activeMQRequestDto, limit);
     }
 
-    @Operation(summary = "JmsTemplate 기반 부하 테스트", description = "Load test using cached JMS sessions instead of one connection/session per task")
+    @Operation(summary = "JmsTemplate 기반 부하 테스트", description = "Load test with elapsedMillis, actual TPS and failure count metrics")
     @PostMapping("/jms-template-load/{taskId}")
-    public String jmsTemplateLoadTest(
+    public LoadTestResultDto jmsTemplateLoadTest(
             @PathVariable String taskId,
             @Valid @RequestBody JmsTemplateLoadTestRequestDto requestDto
     ) {
-        jmsTemplateLoadTestLogic.run(taskId, requestDto);
-        return "success : Started JmsTemplate load test with task ID " + taskId;
+        return jmsTemplateLoadTestLogic.run(taskId, requestDto);
     }
 
     @Operation(summary = "ActiveMQ 파일 메시지 전송(동일한 메시지 반복)", description = "ActiveMQ file message send")

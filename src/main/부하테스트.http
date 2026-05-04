@@ -5,7 +5,9 @@
 ### 1. ActiveMQ Artemis를 먼저 실행합니다.
 ###    기본 예시: tcp://localhost:61616 / artemis / artemis
 ### 2. Spring Boot 서버를 실행합니다.
-###    mvn spring-boot:run
+###    기본: mvn spring-boot:run
+###    local: mvn spring-boot:run -Dspring-boot.run.profiles=local
+###    prod : mvn spring-boot:run -Dspring-boot.run.profiles=prod
 ### 3. IntelliJ IDEA / Rider / VS Code REST Client에서 아래 요청을 하나씩 실행합니다.
 ### 4. 처음에는 dry-run, concurrentTasks=1, messageCount=1로 작게 테스트한 뒤 점진적으로 늘리세요.
 ###
@@ -14,6 +16,8 @@
 ### - ActiveMQ 접속 정보는 body에서 생략 가능하며, 생략 시 application.properties의 simulator.activemq.* 값을 사용합니다.
 ### - concurrentTasks=1000 방식은 ActiveMQ connection/session/producer를 매우 많이 만들 수 있습니다.
 ### - JmsTemplate load 방식은 session cache 기반으로 메시지 처리량을 비교하기 좋습니다.
+### - targetTps=0이면 TPS 제한 없음, targetTps>0이면 목표 TPS 기준으로 pacing합니다.
+### - TPS 테스트 시 delayTime=0을 권장합니다. delayTime과 targetTps를 같이 주면 둘 다 적용됩니다.
 ### - 총 메시지 수 = concurrentTasks × repeatCount × data row 수
 ### - repeatCount = messageCount > 0 이면 messageCount, 아니면 ceil(repeatTime / delayTime)
 ### ============================================================================
@@ -27,6 +31,7 @@
 @filePath = c:/Project/
 @formatFileName = KE2D1Z11_format2.txt
 @dataFileName = KE2D1Z11.txt
+@targetTps = 100
 
 
 ### ============================================================================
@@ -52,12 +57,14 @@ GET {{host}}/
 ### 일반 랜덤 메시지 dry-run
 ### 응답은 requestedLimit, returnedCount, estimatedRepeatCount, estimatedSourceRowCount,
 ### estimatedTotalMessagesPerTask, generationMode, messages를 포함합니다.
+### messages는 escaped JSON string이 아니라 object 배열입니다.
 POST {{host}}/activemq/request/dry-run?limit=3
 Content-Type: application/json
 
 {
   "tcName": "{{tcName}}",
   "delayTime": 0,
+  "targetTps": 0,
   "repeatBoolean": true,
   "repeatTime": 0,
   "messageCount": 3,
@@ -75,12 +82,14 @@ Content-Type: application/json
 
 
 ### 파일 + 데이터 dry-run - 핵심 검증용
+### messages가 object 배열로 반환되는지 확인하세요.
 POST {{host}}/activemq/request/file-data/dry-run?limit=5
 Content-Type: application/json
 
 {
   "tcName": "{{tcName}}",
   "delayTime": 0,
+  "targetTps": 0,
   "repeatBoolean": true,
   "repeatTime": 0,
   "messageCount": 1,
@@ -98,6 +107,7 @@ Content-Type: application/json
 {
   "tcName": "{{tcName}}",
   "delayTime": 0,
+  "targetTps": 0,
   "repeatBoolean": true,
   "repeatTime": 0,
   "messageCount": 3,
@@ -120,7 +130,8 @@ Content-Type: application/json
   "pw": "{{brokerPw}}",
   "topic": "{{topic}}",
   "tcName": "{{tcName}}",
-  "delayTime": 1000,
+  "delayTime": 0,
+  "targetTps": "{{targetTps}}",
   "repeatBoolean": true,
   "repeatTime": 0,
   "messageCount": 5,
@@ -143,7 +154,8 @@ Content-Type: application/json
 
 {
   "tcName": "{{tcName}}",
-  "delayTime": 1000,
+  "delayTime": 0,
+  "targetTps": 50,
   "repeatBoolean": true,
   "repeatTime": 0,
   "messageCount": 5,
@@ -170,7 +182,8 @@ Content-Type: application/json
   "pw": "{{brokerPw}}",
   "topic": "{{topic}}",
   "tcName": "{{tcName}}",
-  "delayTime": 100,
+  "delayTime": 0,
+  "targetTps": 200,
   "repeatBoolean": true,
   "repeatTime": 0,
   "messageCount": 10,
@@ -200,7 +213,8 @@ Content-Type: application/json
   "pw": "{{brokerPw}}",
   "topic": "{{topic}}",
   "tcName": "{{tcName}}",
-  "delayTime": 1000,
+  "delayTime": 0,
+  "targetTps": 50,
   "repeatBoolean": true,
   "repeatTime": 0,
   "messageCount": 2,
@@ -233,7 +247,8 @@ Content-Type: application/json
   "pw": "{{brokerPw}}",
   "topic": "{{topic}}",
   "tcName": "{{tcName}}",
-  "delayTime": 500,
+  "delayTime": 0,
+  "targetTps": 100,
   "repeatBoolean": true,
   "repeatTime": 0,
   "messageCount": 1,
@@ -268,7 +283,8 @@ Content-Type: application/json
   "pw": "{{brokerPw}}",
   "topic": "{{topic}}",
   "tcName": "{{tcName}}",
-  "delayTime": 1000,
+  "delayTime": 0,
+  "targetTps": 0,
   "repeatBoolean": false,
   "repeatTime": 0,
   "messageCount": 0,
@@ -288,7 +304,8 @@ Content-Type: application/json
   "pw": "{{brokerPw}}",
   "topic": "{{topic}}",
   "tcName": "{{tcName}}",
-  "delayTime": 500,
+  "delayTime": 0,
+  "targetTps": 100,
   "repeatBoolean": true,
   "repeatTime": 0,
   "messageCount": 10,
@@ -317,7 +334,8 @@ Content-Type: application/json
   "pw": "{{brokerPw}}",
   "topic": "{{topic}}",
   "tcName": "{{tcName}}",
-  "delayTime": 1000,
+  "delayTime": 0,
+  "targetTps": 0,
   "repeatBoolean": true,
   "repeatTime": 0,
   "messageCount": 1,
@@ -328,7 +346,7 @@ Content-Type: application/json
 }
 
 
-### 파일 + 데이터 반복 테스트
+### 파일 + 데이터 반복 테스트 + 목표 TPS
 POST {{host}}/activemq/request/file-data/file-data-repeat
 Content-Type: application/json
 
@@ -338,7 +356,8 @@ Content-Type: application/json
   "pw": "{{brokerPw}}",
   "topic": "{{topic}}",
   "tcName": "{{tcName}}",
-  "delayTime": 500,
+  "delayTime": 0,
+  "targetTps": 200,
   "repeatBoolean": true,
   "repeatTime": 0,
   "messageCount": 10,
@@ -360,6 +379,7 @@ Content-Type: application/json
   "topic": "{{topic}}",
   "tcName": "{{tcName}}",
   "delayTime": 1000,
+  "targetTps": 0,
   "repeatBoolean": true,
   "repeatTime": 35000,
   "messageCount": 0,
@@ -380,14 +400,15 @@ Content-Type: application/json
   "pw": "{{brokerPw}}",
   "topic": "{{topic}}",
   "tcName": "{{tcName}}",
-  "delayTime": 1000,
+  "delayTime": 0,
+  "targetTps": 500,
   "repeatBoolean": true,
-  "repeatTime": 35000,
-  "messageCount": 0,
+  "repeatTime": 0,
+  "messageCount": 100,
   "filePath": "{{filePath}}",
   "formatFileName": "{{formatFileName}}",
   "dataFileName": "{{dataFileName}}",
-  "concurrentTasks": 1000
+  "concurrentTasks": 10
 }
 
 
@@ -397,6 +418,7 @@ Content-Type: application/json
 ### 기존 concurrentTasks 방식과 다르게 CachingConnectionFactory / JmsTemplate을 사용합니다.
 ### workerCount개의 작업자가 messageCount를 나눠 보냅니다.
 ### session cache size는 application.properties의 simulator.activemq.session-cache-size로 조정합니다.
+### 응답에는 requestedCount, successCount, failureCount, elapsedMillis, actualTps가 포함됩니다.
 
 POST {{host}}/activemq/request/jms-template-load/jms-load-small
 Content-Type: application/json
@@ -405,6 +427,7 @@ Content-Type: application/json
   "tcName": "{{tcName}}",
   "messageCount": 1000,
   "delayTime": 0,
+  "targetTps": 100,
   "workerCount": 10,
   "topic": "{{topic}}",
   "payload": "{\"source\":\"jms-template-load\",\"type\":\"LOAD_TEST\"}"
@@ -419,6 +442,7 @@ Content-Type: application/json
   "tcName": "{{tcName}}",
   "messageCount": 100000,
   "delayTime": 0,
+  "targetTps": 1000,
   "workerCount": 100,
   "topic": "{{topic}}",
   "payload": "{\"source\":\"jms-template-load\",\"type\":\"LOAD_TEST_HEAVY\"}"
@@ -426,19 +450,11 @@ Content-Type: application/json
 
 
 ### ============================================================================
-### 7. Task 조회 / 상태 / 취소
+### 7. Task 조회 / 취소
 ### ============================================================================
+### task 상태 이력 DB 저장 기능과 /activemq/task/statuses 계열 API는 제공하지 않습니다.
 
 GET {{host}}/activemq/task/running-tasks
-
-###
-GET {{host}}/activemq/task/statuses
-
-###
-GET {{host}}/activemq/task/statuses/running
-
-###
-DELETE {{host}}/activemq/task/statuses/finished
 
 ###
 POST {{host}}/activemq/task/cancel-tasks

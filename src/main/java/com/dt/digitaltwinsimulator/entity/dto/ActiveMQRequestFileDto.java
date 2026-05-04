@@ -22,6 +22,10 @@ public class ActiveMQRequestFileDto {
     @Min(0)
     private int delayTime;
 
+    @Min(0)
+    @Max(1_000_000)
+    private int targetTps;
+
     private boolean repeatBoolean;
 
     @Min(0)
