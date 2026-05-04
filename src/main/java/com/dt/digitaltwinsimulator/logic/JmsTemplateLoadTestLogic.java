@@ -113,17 +113,20 @@ public class JmsTemplateLoadTestLogic {
     private String createMessage(String tcName, int workerIndex, int messageIndex, String payload) {
         String timestamp = LocalDateTime.now().format(TIMESTAMP_FORMATTER);
         String normalizedPayload = normalizePayload(payload);
-        return "{" +
-                "\"CREATE_TIMESTAMP\":\"" + timestamp + "\"," +
-                "\"MESSAGE_ID\":\"" + escape(tcName) + "\"," +
-                "\"DATA_MAP\":{" +
-                    "\"" + timestamp + "":{" +
-                        "\"workerIndex\":" + workerIndex + "," +
-                        "\"messageIndex\":" + messageIndex +
-                        (normalizedPayload.isBlank() ? "" : "," + normalizedPayload) +
-                    "}" +
-                "}" +
-            "}";
+
+        StringBuilder sb = new StringBuilder();
+        sb.append('{');
+        sb.append("\"CREATE_TIMESTAMP\":\"").append(timestamp).append("\",");
+        sb.append("\"MESSAGE_ID\":\"").append(escape(tcName)).append("\",");
+        sb.append("\"DATA_MAP\":{");
+        sb.append('\"').append(timestamp).append("\":{");
+        sb.append("\"workerIndex\":").append(workerIndex).append(',');
+        sb.append("\"messageIndex\":").append(messageIndex);
+        if (!normalizedPayload.isBlank()) {
+            sb.append(',').append(normalizedPayload);
+        }
+        sb.append("}}}");
+        return sb.toString();
     }
 
     private String normalizePayload(String payload) {
