@@ -6,6 +6,7 @@ import com.dt.digitaltwinsimulator.entity.dto.ActiveMQRequestFileAndDataDto;
 import com.dt.digitaltwinsimulator.entity.dto.ActiveMQRequestFileDto;
 import com.dt.digitaltwinsimulator.entity.dto.DryRunResponseDto;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import jakarta.jms.Connection;
@@ -95,11 +96,11 @@ public class ActiveMQRequestLogic {
         int max = sanitizeLimit(limit);
         int repeatCount = resolveMessageCount(requestDto.isRepeatBoolean(), requestDto.getRepeatTime(), requestDto.getDelayTime(), requestDto.getMessageCount());
         int sourceRowCount = valueRows.isEmpty() ? 1 : valueRows.size();
-        List<String> messages = new ArrayList<>();
+        List<JsonNode> messages = new ArrayList<>();
 
         if (valueRows.isEmpty()) {
             for (int i = 0; i < repeatCount && messages.size() < max; i++) {
-                messages.add(createStructuredMessage(requestDto.getTcName(), formatDefinition.randomPayload()));
+                messages.add(toJsonNode(createStructuredMessage(requestDto.getTcName(), formatDefinition.randomPayload())));
             }
             return createDryRunResponse(limit, repeatCount, sourceRowCount, (long) repeatCount, "RANDOM_FORMAT", messages);
         }
@@ -107,15 +108,17 @@ public class ActiveMQRequestLogic {
         for (int repeatIndex = 0; repeatIndex < repeatCount && messages.size() < max; repeatIndex++) {
             for (String valueRow : valueRows) {
                 if (messages.size() >= max) break;
-                messages.add(createStructuredMessage(requestDto.getTcName(), formatDefinition.payloadFromValueRow(valueRow)));
+                messages.add(toJsonNode(createStructuredMessage(requestDto.getTcName(), formatDefinition.payloadFromValueRow(valueRow))));
             }
         }
         return createDryRunResponse(limit, repeatCount, sourceRowCount, (long) repeatCount * sourceRowCount, "VALUE_ROWS", messages);
     }
 
     private void sendRandomMessages(String taskId, ActiveMQRequestDto requestDto, Session session, MessageProducer sender, FormatDefinition formatDefinition, int messageCount) throws JMSException, InterruptedException, JsonProcessingException {
+        TpsPacer pacer = new TpsPacer(requestDto.getTargetTps());
         for (int i = 0; i < messageCount; i++) {
             if (isCancelled(taskId)) return;
+            pacer.awaitTurn(i);
             TextMessage message = session.createTextMessage(createStructuredMessage(requestDto.getTcName(), formatDefinition.randomPayload()));
             log.info("{} random message[{}] : {}", taskId, i, SensitiveLogMasker.mask(message.getText()));
             sender.send(message);
@@ -125,9 +128,12 @@ public class ActiveMQRequestLogic {
     }
 
     private void sendValueMessages(String taskId, ActiveMQRequestDto requestDto, Session session, MessageProducer sender, FormatDefinition formatDefinition, List<String> valueRows, int repeatCount) throws JMSException, InterruptedException, JsonProcessingException {
+        TpsPacer pacer = new TpsPacer(requestDto.getTargetTps());
+        int sentIndex = 0;
         for (int repeatIndex = 0; repeatIndex < repeatCount; repeatIndex++) {
             for (int rowIndex = 0; rowIndex < valueRows.size(); rowIndex++) {
                 if (isCancelled(taskId)) return;
+                pacer.awaitTurn(sentIndex++);
                 Map<String, String> payload = formatDefinition.payloadFromValueRow(valueRows.get(rowIndex));
                 TextMessage message = session.createTextMessage(createStructuredMessage(requestDto.getTcName(), payload));
                 log.info("{} value message[repeat={}, row={}] : {}", taskId, repeatIndex, rowIndex, SensitiveLogMasker.mask(message.getText()));
@@ -149,8 +155,10 @@ public class ActiveMQRequestLogic {
                 Path filePath = resolveFile(requestDto.getFilePath(), requestDto.getFileName());
                 String fileContents = Files.readString(filePath, StandardCharsets.UTF_8).trim();
                 int messageCount = resolveMessageCount(requestDto.isRepeatBoolean(), requestDto.getRepeatTime(), requestDto.getDelayTime(), requestDto.getMessageCount());
+                TpsPacer pacer = new TpsPacer(requestDto.getTargetTps());
                 for (int i = 0; i < messageCount; i++) {
                     if (isCancelled(taskId)) return CompletableFuture.completedFuture("Cancelled");
+                    pacer.awaitTurn(i);
                     TextMessage message = session.createTextMessage(createFileMessage(requestDto.getTcName(), taskId, fileContents));
                     log.info("{} file message[{}] : {}", taskId, i, SensitiveLogMasker.mask(message.getText()));
                     sender.send(message);
@@ -177,9 +185,9 @@ public class ActiveMQRequestLogic {
         String fileContents = Files.readString(filePath, StandardCharsets.UTF_8).trim();
         int max = sanitizeLimit(limit);
         int messageCount = resolveMessageCount(requestDto.isRepeatBoolean(), requestDto.getRepeatTime(), requestDto.getDelayTime(), requestDto.getMessageCount());
-        List<String> messages = new ArrayList<>();
+        List<JsonNode> messages = new ArrayList<>();
         for (int i = 0; i < messageCount && messages.size() < max; i++) {
-            messages.add(createFileMessage(requestDto.getTcName(), "dry-run", fileContents));
+            messages.add(toJsonNode(createFileMessage(requestDto.getTcName(), "dry-run", fileContents)));
         }
         return createDryRunResponse(limit, messageCount, 1, messageCount, "FILE_REPEAT", messages);
     }
@@ -197,9 +205,12 @@ public class ActiveMQRequestLogic {
                 String originFormatContent = Files.readString(formatFilePath, StandardCharsets.UTF_8);
                 List<String[]> dataLines = readDataLines(dataFilePath, originFormatContent);
                 int repeatCount = resolveMessageCount(requestDto.isRepeatBoolean(), requestDto.getRepeatTime(), requestDto.getDelayTime(), requestDto.getMessageCount());
+                TpsPacer pacer = new TpsPacer(requestDto.getTargetTps());
+                int sentIndex = 0;
                 for (int repeatIndex = 0; repeatIndex < repeatCount; repeatIndex++) {
                     for (int rowIndex = 0; rowIndex < dataLines.size(); rowIndex++) {
                         if (isCancelled(taskId)) return CompletableFuture.completedFuture("Cancelled");
+                        pacer.awaitTurn(sentIndex++);
                         String renderedFormat = renderTemplate(originFormatContent, dataLines.get(rowIndex));
                         TextMessage message = session.createTextMessage(createFileDataMessage(requestDto.getTcName(), renderedFormat));
                         log.info("{} file-data message[repeat={}, row={}] : {}", taskId, repeatIndex, rowIndex, SensitiveLogMasker.mask(message.getText()));
@@ -230,26 +241,26 @@ public class ActiveMQRequestLogic {
         List<String[]> dataLines = readDataLines(dataFilePath, originFormatContent);
         int repeatCount = resolveMessageCount(requestDto.isRepeatBoolean(), requestDto.getRepeatTime(), requestDto.getDelayTime(), requestDto.getMessageCount());
         int max = sanitizeLimit(limit);
-        List<String> messages = new ArrayList<>();
+        List<JsonNode> messages = new ArrayList<>();
         for (int repeatIndex = 0; repeatIndex < repeatCount && messages.size() < max; repeatIndex++) {
             for (String[] dataLine : dataLines) {
                 if (messages.size() >= max) break;
-                messages.add(createFileDataMessage(requestDto.getTcName(), renderTemplate(originFormatContent, dataLine)));
+                messages.add(toJsonNode(createFileDataMessage(requestDto.getTcName(), renderTemplate(originFormatContent, dataLine))));
             }
         }
         return createDryRunResponse(limit, repeatCount, dataLines.size(), (long) repeatCount * dataLines.size(), "FILE_DATA", messages);
     }
 
-    private DryRunResponseDto createDryRunResponse(int requestedLimit, int repeatCount, int sourceRowCount, long estimatedTotalMessagesPerTask, String generationMode, List<String> messages) {
-        return new DryRunResponseDto(
-                Math.min(Math.max(requestedLimit, 1), 100),
-                messages.size(),
-                repeatCount,
-                sourceRowCount,
-                estimatedTotalMessagesPerTask,
-                generationMode,
-                messages
-        );
+    private DryRunResponseDto createDryRunResponse(int requestedLimit, int repeatCount, int sourceRowCount, long estimatedTotalMessagesPerTask, String generationMode, List<JsonNode> messages) {
+        return new DryRunResponseDto(Math.min(Math.max(requestedLimit, 1), 100), messages.size(), repeatCount, sourceRowCount, estimatedTotalMessagesPerTask, generationMode, messages);
+    }
+
+    private JsonNode toJsonNode(String json) {
+        try {
+            return objectMapper.readTree(json);
+        } catch (JsonProcessingException e) {
+            throw new IllegalArgumentException("Generated message is not valid JSON.", e);
+        }
     }
 
     private void registerTask(String taskId) {
@@ -481,6 +492,24 @@ public class ActiveMQRequestLogic {
     }
 
     private record BrokerSettings(String brokerUrl, String username, String password, String topic) {
+    }
+
+    private static class TpsPacer {
+        private final int targetTps;
+        private final long startedAt;
+
+        private TpsPacer(int targetTps) {
+            this.targetTps = targetTps;
+            this.startedAt = System.nanoTime();
+        }
+
+        private void awaitTurn(int messageIndex) throws InterruptedException {
+            if (targetTps <= 0) return;
+            long targetNanos = startedAt + ((long) messageIndex * 1_000_000_000L / targetTps);
+            long sleepNanos = targetNanos - System.nanoTime();
+            if (sleepNanos <= 0) return;
+            Thread.sleep(sleepNanos / 1_000_000L, (int) (sleepNanos % 1_000_000L));
+        }
     }
 
     private record FormatDefinition(List<String> dataIds, List<String> dataTypes, List<String> randomBooleans, List<String> randomConditions) {
