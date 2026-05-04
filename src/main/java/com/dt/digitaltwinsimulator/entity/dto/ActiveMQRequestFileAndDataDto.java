@@ -1,28 +1,12 @@
 package com.dt.digitaltwinsimulator.entity.dto;
 
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
 
-/**
- * ActiveMQ Request File Dto
- *
- * <blockquote><pre>
- * activeMQIp : activeMQ ip
- * id : activeMQ id
- * pw : activeMQ password
- * topic : activeMQ topic
- * tcName : transaction name
- *
- * delayTime : The interval between the previous message and the next message
- *
- * filePath : tc format & data file Path
- * formatFileName : tc format file Name
- * dataFileName : tc data file Name
- *
- * concurrentUsers : Number of concurrent tasks for load testing
- * </pre></blockquote>
- */
 @ToString
 @Getter
 @Setter
@@ -31,13 +15,31 @@ public class ActiveMQRequestFileAndDataDto {
     private String id;
     private String pw;
     private String topic;
+
+    @NotBlank
     private String tcName;
 
+    @Min(0)
     private int delayTime;
 
+    private boolean repeatBoolean;
+
+    @Min(0)
+    private int repeatTime;
+
+    @Min(0)
+    private int messageCount;
+
+    @NotBlank
     private String filePath;
+
+    @NotBlank
     private String formatFileName;
+
+    @NotBlank
     private String dataFileName;
 
+    @Min(1)
+    @Max(2000)
     private int concurrentTasks = 1;
 }

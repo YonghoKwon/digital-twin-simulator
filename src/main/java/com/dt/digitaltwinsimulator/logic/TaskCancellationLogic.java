@@ -14,26 +14,30 @@ public class TaskCancellationLogic {
         return cancellationTokens.keySet();
     }
 
-    // 작업 등록
     public void registerTask(String taskId) {
         cancellationTokens.putIfAbsent(taskId, new AtomicBoolean(false));
     }
 
-    public void requestCancellation(String taskId) {
-        cancellationTokens.computeIfAbsent(taskId, k -> new AtomicBoolean()).set(true);
+    public boolean requestCancellation(String taskId) {
+        AtomicBoolean token = cancellationTokens.get(taskId);
+        if (token == null) {
+            return false;
+        }
+        token.set(true);
+        return true;
     }
 
     public boolean isCancellationRequested(String taskId) {
-        return cancellationTokens.getOrDefault(taskId, new AtomicBoolean(false)).get();
+        AtomicBoolean token = cancellationTokens.get(taskId);
+        return token != null && token.get();
     }
 
     public void removeTask(String taskId) {
         cancellationTokens.remove(taskId);
     }
 
-    public void requestAllCancellation() {
-        // all tasks cancel
+    public int requestAllCancellation() {
         cancellationTokens.forEach((k, v) -> v.set(true));
+        return cancellationTokens.size();
     }
 }
-

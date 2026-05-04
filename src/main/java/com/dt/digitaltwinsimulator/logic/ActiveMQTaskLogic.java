@@ -13,7 +13,7 @@ import java.util.Set;
 @Slf4j
 @Service
 public class ActiveMQTaskLogic {
-    @Value("${server.port}")
+    @Value("${server.port:8080}")
     private String serverPort;
 
     private final TaskCancellationLogic taskCancellationLogic;
@@ -24,17 +24,14 @@ public class ActiveMQTaskLogic {
 
     public List<ActiveMQTaskInfoDto> makeTaskInfoList() {
         List<ActiveMQTaskInfoDto> taskInfoList = new ArrayList<>();
-
         Set<String> runningTaskIds = taskCancellationLogic.getRunningTaskIds();
 
-        // runningTaskIds sorted by ascending order
         List<String> sortedTaskIdList = new ArrayList<>(runningTaskIds);
-        Collections.sort(sortedTaskIdList); // 오름차순 정렬
-//        Collections.sort(sortedTaskIdList, Collections.reverseOrder()); // 내림차순 정렬
+        Collections.sort(sortedTaskIdList);
 
         String baseUrl = "http://localhost:" + serverPort;
         sortedTaskIdList.forEach(taskId ->
-                taskInfoList.add(new ActiveMQTaskInfoDto(taskId, baseUrl + "/cancel-task/" + taskId))
+                taskInfoList.add(new ActiveMQTaskInfoDto(taskId, baseUrl + "/activemq/task/cancel-task/" + taskId))
         );
 
         return taskInfoList;
