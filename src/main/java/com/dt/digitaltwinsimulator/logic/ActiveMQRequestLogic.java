@@ -12,7 +12,6 @@ import jakarta.jms.JMSException;
 import jakarta.jms.MessageProducer;
 import jakarta.jms.Session;
 import jakarta.jms.TextMessage;
-import jakarta.jms.Topic;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.activemq.artemis.jms.client.ActiveMQConnectionFactory;
 import org.springframework.scheduling.annotation.Async;
@@ -26,7 +25,6 @@ import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -82,7 +80,7 @@ public class ActiveMQRequestLogic {
                     sendValueMessages(taskId, activeMQRequestDto, session, sender, formatDefinition, valueRows, messageCount);
                 }
             }
-        } catch (JMSException | IOException e) {
+        } catch (JMSException e) {
             throw new RuntimeException(e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
