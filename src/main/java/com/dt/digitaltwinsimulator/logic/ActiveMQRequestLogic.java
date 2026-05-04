@@ -248,46 +248,48 @@ public class ActiveMQRequestLogic {
     private String createFileMessage(String tcName, String taskId, String fileContents) {
         String nowString = nowTimestamp();
         String normalizedFileContents = removeOuterBraces(fileContents);
-        String comma = normalizedFileContents.isBlank() ? "" : ",";
 
-        return "{" +
-                "\"CREATE_TIMESTAMP\": \"" + nowString + "\"," +
-                "\"MESSAGE_ID\": \"" + escapeJsonString(tcName) + "\"," +
-                "\"DATA_MAP\": {" +
-                    "\"" + nowString + "":{" +
-                        "\"USER_ID\": \"" + escapeJsonString(taskId) + "\"" + comma +
-                        normalizedFileContents +
-                    "}" +
-                "}" +
-            "}";
+        StringBuilder sb = new StringBuilder();
+        sb.append('{');
+        sb.append("\"CREATE_TIMESTAMP\":\"").append(escapeJsonString(nowString)).append("\",");
+        sb.append("\"MESSAGE_ID\":\"").append(escapeJsonString(tcName)).append("\",");
+        sb.append("\"DATA_MAP\":{");
+        sb.append('\"').append(escapeJsonString(nowString)).append("\":{");
+        sb.append("\"USER_ID\":\"").append(escapeJsonString(taskId)).append('\"');
+        if (!normalizedFileContents.isBlank()) {
+            sb.append(',').append(normalizedFileContents);
+        }
+        sb.append("}}}");
+        return sb.toString();
     }
 
     private String createFileDataMessage(String tcName, String formatContent) {
         String nowString = nowTimestamp();
         String normalizedFormatContent = removeOuterBraces(formatContent.trim());
-        String comma = normalizedFormatContent.isBlank() ? "" : ",";
 
-        return "{" +
-                "\"CREATE_TIMESTAMP\": \"" + nowString + "\"," +
-                "\"MESSAGE_ID\": \"" + escapeJsonString(tcName) + "\"," +
-                "\"DATA_MAP\": {" +
-                    "\"" + nowString + "":{" +
-                        "\"transaction_code\": \"" + escapeJsonString(tcName) + "\"," +
-                        "\"works_code\": \"K\"," +
-                        "\"sndr_inform_edit_pgm_id\": \"\"," +
-                        "\"eai_interface_id\": \"\"," +
-                        "\"interface_data_dir_actual_type\": \"\"," +
-                        "\"interface_data_ocr_res_flag\": \"\"," +
-                        "\"interface_data_send_seq\": \"0\"," +
-                        "\"interface_data_upd_tp\": \"\"," +
-                        "\"interface_data_t_len\": \"760\"," +
-                        "\"attribute\": \" \"," +
-                        "\"bsc_gw_data_attr\": \" \"," +
-                        "\"it_com_eai_ifc_var_item_usg_f\": \" \"" + comma +
-                        normalizedFormatContent +
-                    "}" +
-                "}" +
-            "}";
+        StringBuilder sb = new StringBuilder();
+        sb.append('{');
+        sb.append("\"CREATE_TIMESTAMP\":\"").append(escapeJsonString(nowString)).append("\",");
+        sb.append("\"MESSAGE_ID\":\"").append(escapeJsonString(tcName)).append("\",");
+        sb.append("\"DATA_MAP\":{");
+        sb.append('\"').append(escapeJsonString(nowString)).append("\":{");
+        sb.append("\"transaction_code\":\"").append(escapeJsonString(tcName)).append("\",");
+        sb.append("\"works_code\":\"K\",");
+        sb.append("\"sndr_inform_edit_pgm_id\":\"\",");
+        sb.append("\"eai_interface_id\":\"\",");
+        sb.append("\"interface_data_dir_actual_type\":\"\",");
+        sb.append("\"interface_data_ocr_res_flag\":\"\",");
+        sb.append("\"interface_data_send_seq\":\"0\",");
+        sb.append("\"interface_data_upd_tp\":\"\",");
+        sb.append("\"interface_data_t_len\":\"760\",");
+        sb.append("\"attribute\":\" \",");
+        sb.append("\"bsc_gw_data_attr\":\" \",");
+        sb.append("\"it_com_eai_ifc_var_item_usg_f\":\" \"");
+        if (!normalizedFormatContent.isBlank()) {
+            sb.append(',').append(normalizedFormatContent);
+        }
+        sb.append("}}}");
+        return sb.toString();
     }
 
     private String renderTemplate(String template, String[] data) {
