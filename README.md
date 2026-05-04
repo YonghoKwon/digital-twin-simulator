@@ -9,8 +9,22 @@ REST API 요청으로 특정 포맷의 데이터를 대량 생성한 뒤 ActiveM
 
 ## 실행
 
+기본 실행:
+
 ```bash
 mvn spring-boot:run
+```
+
+local profile 실행:
+
+```bash
+mvn spring-boot:run -Dspring-boot.run.profiles=local
+```
+
+prod profile 실행:
+
+```bash
+mvn spring-boot:run -Dspring-boot.run.profiles=prod
 ```
 
 ## ActiveMQ 기본 설정
@@ -24,10 +38,31 @@ simulator.activemq.username=artemis
 simulator.activemq.password=artemis
 simulator.activemq.topic=topic.cep.output.0
 simulator.activemq.session-cache-size=100
-simulator.task.max-history=10000
 ```
 
-로컬/개발/운영 서버별 기본값은 properties/profile로 관리하고, 특정 테스트에서만 요청 body로 덮어쓸 수 있습니다.
+## Profile별 request/response logging
+
+local profile:
+
+```properties
+simulator.http-logging.enabled=true
+simulator.http-logging.include-request-body=true
+simulator.http-logging.include-response-body=true
+simulator.http-logging.max-payload-length=8000
+logging.level.com.dt.digitaltwinsimulator=DEBUG
+```
+
+prod profile:
+
+```properties
+simulator.http-logging.enabled=true
+simulator.http-logging.include-request-body=false
+simulator.http-logging.include-response-body=false
+simulator.http-logging.max-payload-length=1000
+logging.level.com.dt.digitaltwinsimulator=INFO
+```
+
+로그에는 `id`, `username`, `user`, `pw`, `password` 계열 민감값이 마스킹됩니다.
 
 ## 공통 요청 필드
 
@@ -39,14 +74,18 @@ simulator.task.max-history=10000
 | topic | 전송할 topic. 생략 시 서버 기본값 사용 | `topic.cep.output.0` |
 | tcName | transaction/message id | `KE2D1Z11` |
 | delayTime | 메시지 간 대기 시간(ms) | `2000` |
+| targetTps | 목표 TPS. 0이면 제한 없음 | `100` |
 | repeatBoolean | 반복 전송 여부 | `true` |
 | repeatTime | `messageCount`가 없을 때 전송 지속 시간(ms) | `10000` |
 | messageCount | 명시적 생성 횟수. 지정 시 `repeatTime`보다 우선 | `1000` |
 | concurrentTasks | 동시 실행 task 수. 1~2000 | `10` |
 
+`targetTps`와 `delayTime`을 함께 주면 둘 다 적용됩니다. TPS 기준 전송을 테스트할 때는 보통 `delayTime=0`을 권장합니다.
+
 ## 1. Dry-run
 
-Dry-run은 ActiveMQ로 전송하지 않고 생성될 메시지 샘플만 반환합니다. 응답은 구조화된 DTO이며, `limit`은 최대 100개입니다.
+Dry-run은 ActiveMQ로 전송하지 않고 생성될 메시지 샘플만 반환합니다. `limit`은 최대 100개입니다.
+`messages`는 escaped JSON string이 아니라 object 형태로 반환됩니다.
 
 ```http
 POST http://localhost:8080/activemq/request/file-data/dry-run?limit=5
@@ -57,6 +96,7 @@ Content-Type: application/json
 {
   "tcName": "KE2D1Z11",
   "delayTime": 0,
+  "targetTps": 0,
   "repeatBoolean": true,
   "repeatTime": 0,
   "messageCount": 1,
@@ -78,7 +118,11 @@ Content-Type: application/json
   "estimatedTotalMessagesPerTask": 3,
   "generationMode": "FILE_DATA",
   "messages": [
-    "{...}"
+    {
+      "CREATE_TIMESTAMP": "20260504192700000",
+      "MESSAGE_ID": "KE2D1Z11",
+      "DATA_MAP": {}
+    }
   ]
 }
 ```
@@ -104,6 +148,7 @@ Content-Type: application/json
 {
   "tcName": "KE2D1Z11",
   "delayTime": 0,
+  "targetTps": 100,
   "repeatBoolean": true,
   "repeatTime": 0,
   "messageCount": 1000,
@@ -147,7 +192,8 @@ Content-Type: application/json
 ```json
 {
   "tcName": "KE2D1Z11",
-  "delayTime": 100,
+  "delayTime": 0,
+  "targetTps": 50,
   "repeatBoolean": true,
   "repeatTime": 0,
   "messageCount": 3,
@@ -183,7 +229,8 @@ Content-Type: application/json
 ```json
 {
   "tcName": "KE2D1Z11",
-  "delayTime": 1000,
+  "delayTime": 0,
+  "targetTps": 100,
   "repeatBoolean": true,
   "repeatTime": 0,
   "messageCount": 100,
@@ -205,7 +252,8 @@ Content-Type: application/json
 ```json
 {
   "tcName": "KE2D1Z11",
-  "delayTime": 100,
+  "delayTime": 0,
+  "targetTps": 200,
   "repeatBoolean": true,
   "repeatTime": 0,
   "messageCount": 100,
@@ -259,8 +307,8 @@ WARN,"quoted ""text"" sample",25.2
 
 ## 6. JmsTemplate 기반 부하 테스트 모드
 
-기존 `/activemq/request/{taskId}` 방식은 `concurrentTasks`만큼 task가 생기며, task별로 ActiveMQ connection/session/producer가 생성될 수 있습니다.
 JmsTemplate 모드는 Spring `CachingConnectionFactory`를 사용해 session을 캐시하고, `workerCount` 작업자가 `messageCount`를 나눠 전송합니다.
+응답에는 elapsed time, TPS, 성공 건수, 실패 건수가 포함됩니다.
 
 ```http
 POST http://localhost:8080/activemq/request/jms-template-load/jms-load-1
@@ -272,30 +320,39 @@ Content-Type: application/json
   "tcName": "KP1D0012",
   "messageCount": 10000,
   "delayTime": 0,
+  "targetTps": 100,
   "workerCount": 20,
   "topic": "topic.cep.output.0",
   "payload": "{\"source\":\"jms-template-load\",\"type\":\"LOAD_TEST\"}"
 }
 ```
 
-이 모드는 “동시 producer 1000개”가 아니라, 제한된 worker/session cache 기반으로 메시지 처리량을 측정하는 데 더 적합합니다.
+응답 예시:
+
+```json
+{
+  "taskId": "jms-load-1",
+  "requestedCount": 10000,
+  "successCount": 10000,
+  "failureCount": 0,
+  "elapsedMillis": 100235,
+  "actualTps": 99.766,
+  "workerCount": 20,
+  "targetTps": 100,
+  "cancelled": false,
+  "message": "completed"
+}
+```
 
 ## 7. Task API
 
 | method | path | 설명 |
 | --- | --- | --- |
 | GET | `/activemq/task/running-tasks` | 실행 중인 task 목록 조회 |
-| GET | `/activemq/task/statuses` | 전체 task 상태 조회 |
-| GET | `/activemq/task/statuses/running` | RUNNING 상태 task 조회 |
-| DELETE | `/activemq/task/statuses/finished` | 완료된 task 상태 이력 삭제 |
 | POST | `/activemq/task/cancel-tasks` | 전체 task 취소 요청 |
 | POST | `/activemq/task/cancel-task/{taskId}` | 특정 task 취소 요청 |
 
-Task 상태는 `RUNNING`, `SUCCESS`, `FAILED`, `CANCELLED`를 가집니다. 상태 이력은 `simulator.task.max-history` 설정값에 따라 오래된 완료 이력부터 정리됩니다.
-
-## 8. 운영 로그 보안
-
-메시지 로그 출력 시 `id`, `username`, `user`, `pw`, `password` 패턴은 `****`로 마스킹합니다.
+Task 상태 이력 DB 저장 기능과 `/activemq/task/statuses` 계열 API는 제공하지 않습니다.
 
 ## 테스트
 
