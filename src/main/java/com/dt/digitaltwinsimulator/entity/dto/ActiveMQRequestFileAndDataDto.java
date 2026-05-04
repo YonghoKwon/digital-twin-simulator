@@ -11,16 +11,9 @@ import lombok.ToString;
 @Getter
 @Setter
 public class ActiveMQRequestFileAndDataDto {
-    @NotBlank
     private String activeMQIp;
-
-    @NotBlank
     private String id;
-
-    @NotBlank
     private String pw;
-
-    @NotBlank
     private String topic;
 
     @NotBlank
