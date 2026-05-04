@@ -1,5 +1,6 @@
 package com.dt.digitaltwinsimulator.logic;
 
+import com.dt.digitaltwinsimulator.config.ActiveMqBrokerProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -11,7 +12,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ActiveMQRequestLogicTest {
-    private final ActiveMQRequestLogic logic = new ActiveMQRequestLogic(new TaskCancellationLogic());
+    private final ActiveMQRequestLogic logic = new ActiveMQRequestLogic(
+            new TaskCancellationLogic(),
+            new TaskExecutionStatusLogic(),
+            new ActiveMqBrokerProperties()
+    );
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
