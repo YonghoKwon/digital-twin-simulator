@@ -6,6 +6,9 @@ import java.util.List;
 import java.util.Map;
 
 public final class FileDataTemplateRenderer {
+    private static final char LEFT = '{';
+    private static final char RIGHT = '}';
+
     public record FileDataRecord(Map<String, String> valuesByName, List<String> orderedValues) {
         public String valueFor(String name, int index) {
             if (valuesByName.containsKey(name)) {
