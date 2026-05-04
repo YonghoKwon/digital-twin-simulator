@@ -7,25 +7,6 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
 
-/**
- * ActiveMQ Request File Dto
- *
- * <blockquote><pre>
- * activeMQIp : ActiveMQ ip
- * id : ActiveMQ id
- * pw : ActiveMQ password
- * topic : ActiveMQ topic
- * tcName : transaction name
- *
- * delayTime : The interval between the previous message and the next message
- *
- * filePath : tc format & data file Path
- * formatFileName : tc format file Name
- * dataFileName : tc data file Name
- *
- * concurrentTasks : Number of concurrent tasks for load testing
- * </pre></blockquote>
- */
 @ToString
 @Getter
 @Setter
@@ -47,6 +28,14 @@ public class ActiveMQRequestFileAndDataDto {
 
     @Min(0)
     private int delayTime;
+
+    private boolean repeatBoolean;
+
+    @Min(0)
+    private int repeatTime;
+
+    @Min(0)
+    private int messageCount;
 
     @NotBlank
     private String filePath;
