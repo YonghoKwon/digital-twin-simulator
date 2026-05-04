@@ -21,6 +21,10 @@ public class JmsTemplateLoadTestRequestDto {
     @Min(0)
     private int delayTime;
 
+    @Min(0)
+    @Max(1_000_000)
+    private int targetTps;
+
     @Min(1)
     @Max(2000)
     private int workerCount = 1;
