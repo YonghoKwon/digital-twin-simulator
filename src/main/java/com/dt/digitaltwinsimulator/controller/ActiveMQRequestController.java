@@ -3,7 +3,10 @@ package com.dt.digitaltwinsimulator.controller;
 import com.dt.digitaltwinsimulator.entity.dto.ActiveMQRequestDto;
 import com.dt.digitaltwinsimulator.entity.dto.ActiveMQRequestFileAndDataDto;
 import com.dt.digitaltwinsimulator.entity.dto.ActiveMQRequestFileDto;
+import com.dt.digitaltwinsimulator.entity.dto.DryRunResponseDto;
+import com.dt.digitaltwinsimulator.entity.dto.JmsTemplateLoadTestRequestDto;
 import com.dt.digitaltwinsimulator.logic.ActiveMQRequestLogic;
+import com.dt.digitaltwinsimulator.logic.JmsTemplateLoadTestLogic;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -16,7 +19,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
-import java.util.List;
 import java.util.UUID;
 
 @Tag(name = "ActiveMQ Request Controller")
@@ -25,9 +27,14 @@ import java.util.UUID;
 @RequestMapping("/activemq/request")
 class ActiveMQRequestController {
     private final ActiveMQRequestLogic activeMQRequestLogic;
+    private final JmsTemplateLoadTestLogic jmsTemplateLoadTestLogic;
 
-    public ActiveMQRequestController(ActiveMQRequestLogic activeMQRequestLogic) {
+    public ActiveMQRequestController(
+            ActiveMQRequestLogic activeMQRequestLogic,
+            JmsTemplateLoadTestLogic jmsTemplateLoadTestLogic
+    ) {
         this.activeMQRequestLogic = activeMQRequestLogic;
+        this.jmsTemplateLoadTestLogic = jmsTemplateLoadTestLogic;
     }
 
     @Operation(summary = "ActiveMQ 메시지 전송", description = "ActiveMQ message send")
@@ -42,11 +49,21 @@ class ActiveMQRequestController {
 
     @Operation(summary = "ActiveMQ 메시지 Dry-run", description = "Generate sample messages without sending to ActiveMQ")
     @PostMapping("/dry-run")
-    public List<String> activemqNormalDryRun(
+    public DryRunResponseDto activemqNormalDryRun(
             @Valid @RequestBody ActiveMQRequestDto activeMQRequestDto,
             @RequestParam(defaultValue = "10") int limit
     ) throws Exception {
         return activeMQRequestLogic.dryRunTopic(activeMQRequestDto, limit);
+    }
+
+    @Operation(summary = "JmsTemplate 기반 부하 테스트", description = "Load test using cached JMS sessions instead of one connection/session per task")
+    @PostMapping("/jms-template-load/{taskId}")
+    public String jmsTemplateLoadTest(
+            @PathVariable String taskId,
+            @Valid @RequestBody JmsTemplateLoadTestRequestDto requestDto
+    ) {
+        jmsTemplateLoadTestLogic.run(taskId, requestDto);
+        return "success : Started JmsTemplate load test with task ID " + taskId;
     }
 
     @Operation(summary = "ActiveMQ 파일 메시지 전송(동일한 메시지 반복)", description = "ActiveMQ file message send")
@@ -61,7 +78,7 @@ class ActiveMQRequestController {
 
     @Operation(summary = "ActiveMQ 파일 메시지 Dry-run", description = "Generate file messages without sending to ActiveMQ")
     @PostMapping("/file/dry-run")
-    public List<String> activemqFileDryRun(
+    public DryRunResponseDto activemqFileDryRun(
             @Valid @RequestBody ActiveMQRequestFileDto activeMQRequestFileDto,
             @RequestParam(defaultValue = "10") int limit
     ) throws IOException {
@@ -80,7 +97,7 @@ class ActiveMQRequestController {
 
     @Operation(summary = "ActiveMQ 파일 & 데이터 메시지 Dry-run", description = "Generate file-data messages without sending to ActiveMQ")
     @PostMapping("/file-data/dry-run")
-    public List<String> activemqFileAndDataDryRun(
+    public DryRunResponseDto activemqFileAndDataDryRun(
             @Valid @RequestBody ActiveMQRequestFileAndDataDto activeMQRequestFileAndDataDto,
             @RequestParam(defaultValue = "10") int limit
     ) throws IOException {
