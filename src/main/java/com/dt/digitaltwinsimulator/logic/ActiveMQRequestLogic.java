@@ -4,6 +4,7 @@ import com.dt.digitaltwinsimulator.config.ActiveMqBrokerProperties;
 import com.dt.digitaltwinsimulator.entity.dto.ActiveMQRequestDto;
 import com.dt.digitaltwinsimulator.entity.dto.ActiveMQRequestFileAndDataDto;
 import com.dt.digitaltwinsimulator.entity.dto.ActiveMQRequestFileDto;
+import com.dt.digitaltwinsimulator.entity.dto.DryRunResponseDto;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -88,30 +89,35 @@ public class ActiveMQRequestLogic {
         return CompletableFuture.completedFuture("success");
     }
 
-    public List<String> dryRunTopic(ActiveMQRequestDto requestDto, int limit) throws JsonProcessingException {
+    public DryRunResponseDto dryRunTopic(ActiveMQRequestDto requestDto, int limit) throws JsonProcessingException {
         FormatDefinition formatDefinition = FormatDefinition.from(requestDto.getFormat());
         List<String> valueRows = sortedValueRows(requestDto.getValue());
         int max = sanitizeLimit(limit);
-        int messageCount = Math.min(resolveMessageCount(requestDto.isRepeatBoolean(), requestDto.getRepeatTime(), requestDto.getDelayTime(), requestDto.getMessageCount()), max);
+        int repeatCount = resolveMessageCount(requestDto.isRepeatBoolean(), requestDto.getRepeatTime(), requestDto.getDelayTime(), requestDto.getMessageCount());
+        int sourceRowCount = valueRows.isEmpty() ? 1 : valueRows.size();
         List<String> messages = new ArrayList<>();
+
         if (valueRows.isEmpty()) {
-            for (int i = 0; i < messageCount; i++) messages.add(createStructuredMessage(requestDto.getTcName(), formatDefinition.randomPayload()));
-        } else {
-            for (int repeatIndex = 0; repeatIndex < messageCount && messages.size() < max; repeatIndex++) {
-                for (String valueRow : valueRows) {
-                    if (messages.size() >= max) break;
-                    messages.add(createStructuredMessage(requestDto.getTcName(), formatDefinition.payloadFromValueRow(valueRow)));
-                }
+            for (int i = 0; i < repeatCount && messages.size() < max; i++) {
+                messages.add(createStructuredMessage(requestDto.getTcName(), formatDefinition.randomPayload()));
+            }
+            return createDryRunResponse(limit, repeatCount, sourceRowCount, (long) repeatCount, "RANDOM_FORMAT", messages);
+        }
+
+        for (int repeatIndex = 0; repeatIndex < repeatCount && messages.size() < max; repeatIndex++) {
+            for (String valueRow : valueRows) {
+                if (messages.size() >= max) break;
+                messages.add(createStructuredMessage(requestDto.getTcName(), formatDefinition.payloadFromValueRow(valueRow)));
             }
         }
-        return messages;
+        return createDryRunResponse(limit, repeatCount, sourceRowCount, (long) repeatCount * sourceRowCount, "VALUE_ROWS", messages);
     }
 
     private void sendRandomMessages(String taskId, ActiveMQRequestDto requestDto, Session session, MessageProducer sender, FormatDefinition formatDefinition, int messageCount) throws JMSException, InterruptedException, JsonProcessingException {
         for (int i = 0; i < messageCount; i++) {
             if (isCancelled(taskId)) return;
             TextMessage message = session.createTextMessage(createStructuredMessage(requestDto.getTcName(), formatDefinition.randomPayload()));
-            log.info("{} random message[{}] : {}", taskId, i, message.getText());
+            log.info("{} random message[{}] : {}", taskId, i, SensitiveLogMasker.mask(message.getText()));
             sender.send(message);
             taskExecutionStatusLogic.incrementSentCount(taskId);
             sleep(requestDto.getDelayTime());
@@ -124,7 +130,7 @@ public class ActiveMQRequestLogic {
                 if (isCancelled(taskId)) return;
                 Map<String, String> payload = formatDefinition.payloadFromValueRow(valueRows.get(rowIndex));
                 TextMessage message = session.createTextMessage(createStructuredMessage(requestDto.getTcName(), payload));
-                log.info("{} value message[repeat={}, row={}] : {}", taskId, repeatIndex, rowIndex, message.getText());
+                log.info("{} value message[repeat={}, row={}] : {}", taskId, repeatIndex, rowIndex, SensitiveLogMasker.mask(message.getText()));
                 sender.send(message);
                 taskExecutionStatusLogic.incrementSentCount(taskId);
                 sleep(requestDto.getDelayTime());
@@ -146,7 +152,7 @@ public class ActiveMQRequestLogic {
                 for (int i = 0; i < messageCount; i++) {
                     if (isCancelled(taskId)) return CompletableFuture.completedFuture("Cancelled");
                     TextMessage message = session.createTextMessage(createFileMessage(requestDto.getTcName(), taskId, fileContents));
-                    log.info("{} file message[{}] : {}", taskId, i, message.getText());
+                    log.info("{} file message[{}] : {}", taskId, i, SensitiveLogMasker.mask(message.getText()));
                     sender.send(message);
                     taskExecutionStatusLogic.incrementSentCount(taskId);
                     sleep(requestDto.getDelayTime());
@@ -166,13 +172,16 @@ public class ActiveMQRequestLogic {
         return CompletableFuture.completedFuture("success");
     }
 
-    public List<String> dryRunFileTopic(ActiveMQRequestFileDto requestDto, int limit) throws IOException {
+    public DryRunResponseDto dryRunFileTopic(ActiveMQRequestFileDto requestDto, int limit) throws IOException {
         Path filePath = resolveFile(requestDto.getFilePath(), requestDto.getFileName());
         String fileContents = Files.readString(filePath, StandardCharsets.UTF_8).trim();
-        int messageCount = Math.min(resolveMessageCount(requestDto.isRepeatBoolean(), requestDto.getRepeatTime(), requestDto.getDelayTime(), requestDto.getMessageCount()), sanitizeLimit(limit));
+        int max = sanitizeLimit(limit);
+        int messageCount = resolveMessageCount(requestDto.isRepeatBoolean(), requestDto.getRepeatTime(), requestDto.getDelayTime(), requestDto.getMessageCount());
         List<String> messages = new ArrayList<>();
-        for (int i = 0; i < messageCount; i++) messages.add(createFileMessage(requestDto.getTcName(), "dry-run", fileContents));
-        return messages;
+        for (int i = 0; i < messageCount && messages.size() < max; i++) {
+            messages.add(createFileMessage(requestDto.getTcName(), "dry-run", fileContents));
+        }
+        return createDryRunResponse(limit, messageCount, 1, messageCount, "FILE_REPEAT", messages);
     }
 
     @Async("threadPoolTaskExecutor")
@@ -193,7 +202,7 @@ public class ActiveMQRequestLogic {
                         if (isCancelled(taskId)) return CompletableFuture.completedFuture("Cancelled");
                         String renderedFormat = renderTemplate(originFormatContent, dataLines.get(rowIndex));
                         TextMessage message = session.createTextMessage(createFileDataMessage(requestDto.getTcName(), renderedFormat));
-                        log.info("{} file-data message[repeat={}, row={}] : {}", taskId, repeatIndex, rowIndex, message.getText());
+                        log.info("{} file-data message[repeat={}, row={}] : {}", taskId, repeatIndex, rowIndex, SensitiveLogMasker.mask(message.getText()));
                         sender.send(message);
                         taskExecutionStatusLogic.incrementSentCount(taskId);
                         sleep(requestDto.getDelayTime());
@@ -214,7 +223,7 @@ public class ActiveMQRequestLogic {
         return CompletableFuture.completedFuture("success");
     }
 
-    public List<String> dryRunFileAndDataTopic(ActiveMQRequestFileAndDataDto requestDto, int limit) throws IOException {
+    public DryRunResponseDto dryRunFileAndDataTopic(ActiveMQRequestFileAndDataDto requestDto, int limit) throws IOException {
         Path formatFilePath = resolveFile(requestDto.getFilePath(), requestDto.getFormatFileName());
         Path dataFilePath = resolveFile(requestDto.getFilePath(), requestDto.getDataFileName());
         String originFormatContent = Files.readString(formatFilePath, StandardCharsets.UTF_8);
@@ -228,7 +237,19 @@ public class ActiveMQRequestLogic {
                 messages.add(createFileDataMessage(requestDto.getTcName(), renderTemplate(originFormatContent, dataLine)));
             }
         }
-        return messages;
+        return createDryRunResponse(limit, repeatCount, dataLines.size(), (long) repeatCount * dataLines.size(), "FILE_DATA", messages);
+    }
+
+    private DryRunResponseDto createDryRunResponse(int requestedLimit, int repeatCount, int sourceRowCount, long estimatedTotalMessagesPerTask, String generationMode, List<String> messages) {
+        return new DryRunResponseDto(
+                Math.min(Math.max(requestedLimit, 1), 100),
+                messages.size(),
+                repeatCount,
+                sourceRowCount,
+                estimatedTotalMessagesPerTask,
+                generationMode,
+                messages
+        );
     }
 
     private void registerTask(String taskId) {
