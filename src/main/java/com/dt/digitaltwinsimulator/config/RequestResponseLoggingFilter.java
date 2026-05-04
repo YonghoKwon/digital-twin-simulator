@@ -1,5 +1,6 @@
 package com.dt.digitaltwinsimulator.config;
 
+import com.dt.digitaltwinsimulator.logic.SensitiveLogMasker;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
