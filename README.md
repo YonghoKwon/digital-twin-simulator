@@ -145,7 +145,7 @@ Content-Type: application/json
 
 ## 4. 포맷 파일 + 데이터 파일 전송
 
-포맷 파일의 `{{...}}` placeholder를 데이터 파일의 각 line 값으로 순서대로 치환해서 전송합니다.
+핵심 사용 방식입니다. `KE2D1Z11_format.txt`와 `KE2D1Z11_data.txt`를 읽어서 format 파일의 placeholder를 data 파일 값으로 치환한 뒤 ActiveMQ로 전송합니다.
 
 ```http
 POST http://localhost:8080/activemq/request/file-data/file-data-bulk
@@ -160,12 +160,19 @@ Content-Type: application/json
   "topic": "jms.topic.cep.output.9",
   "tcName": "KE2D1Z11",
   "delayTime": 100,
+  "repeatBoolean": true,
+  "repeatTime": 0,
+  "messageCount": 100,
   "filePath": "c:/Project/",
   "formatFileName": "KE2D1Z11_format.txt",
   "dataFileName": "KE2D1Z11_data.txt",
   "concurrentTasks": 1
 }
 ```
+
+위 예시는 data 파일 전체를 100번 반복해서 전송합니다. data row가 3개이면 총 300개 메시지가 전송됩니다.
+
+### 4-1. 순서 기반 data 파일
 
 format file 예시:
 
@@ -181,6 +188,37 @@ data file 예시:
 25.1,1001,OK
 25.2,1002,OK
 25.3,1003,WARN
+```
+
+이 경우 첫 번째 컬럼은 `temperature`, 두 번째 컬럼은 `pressure`, 세 번째 컬럼은 `status`에 들어갑니다.
+
+### 4-2. 헤더 기반 data 파일
+
+이제 data 파일 첫 줄에 header를 둘 수 있습니다. header에 placeholder 이름이 포함되어 있으면 컬럼 순서가 달라도 이름 기준으로 매핑됩니다.
+
+format file 예시:
+
+```json
+"temperature": "{{temperature}}",
+"pressure": "{{pressure}}",
+"status": "{{status}}"
+```
+
+data file 예시:
+
+```csv
+status,temperature,pressure
+OK,25.1,1001
+OK,25.2,1002
+WARN,25.3,1003
+```
+
+이 경우 컬럼 순서와 관계없이 다음처럼 매핑됩니다.
+
+```text
+temperature = 25.1
+pressure = 1001
+status = OK
 ```
 
 ## Task API
