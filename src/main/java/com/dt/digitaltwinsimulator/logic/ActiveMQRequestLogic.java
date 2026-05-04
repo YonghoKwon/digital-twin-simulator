@@ -6,89 +6,86 @@ import com.dt.digitaltwinsimulator.entity.dto.ActiveMQRequestFileDto;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import jakarta.jms.Connection;
+import jakarta.jms.ConnectionFactory;
+import jakarta.jms.JMSException;
+import jakarta.jms.MessageProducer;
+import jakarta.jms.Session;
+import jakarta.jms.TextMessage;
+import jakarta.jms.Topic;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.activemq.artemis.utils.RandomUtil;
-import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.activemq.artemis.jms.client.ActiveMQConnectionFactory;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
-import jakarta.jms.*;
-import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Slf4j
 @Service
 public class ActiveMQRequestLogic {
+    private static final Pattern PLACEHOLDER_PATTERN = Pattern.compile("\\{\\{.*?\\}\\}");
+    private static final Pattern LEGACY_DATE_PATTERN = Pattern.compile("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\.\\d{3}");
+    private static final DateTimeFormatter TIMESTAMP_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
+    private static final DateTimeFormatter LEGACY_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
+    private static final DateTimeFormatter NORMALIZED_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
 
     private final TaskCancellationLogic taskCancellationLogic;
+    private final ObjectMapper objectMapper;
 
     public ActiveMQRequestLogic(TaskCancellationLogic taskCancellationLogic) {
         this.taskCancellationLogic = taskCancellationLogic;
+        this.objectMapper = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
     }
 
     @Async("threadPoolTaskExecutor")
     public CompletableFuture<String> sendTopic(String taskId, ActiveMQRequestDto activeMQRequestDto) {
-        log.info("taskId : " + taskId);
+        log.info("taskId : {}", taskId);
         taskCancellationLogic.registerTask(taskId);
 
-        // activeMQ connection
         ConnectionFactory connectionFactory = new ActiveMQConnectionFactory(activeMQRequestDto.getActiveMQIp());
 
-        try(Connection connection = connectionFactory.createConnection(activeMQRequestDto.getId(), activeMQRequestDto.getPw())) {
+        try (Connection connection = connectionFactory.createConnection(activeMQRequestDto.getId(), activeMQRequestDto.getPw())) {
             connection.start();
 
-            // session, topic, producer create
-            Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
-            Topic topic = session.createTopic(activeMQRequestDto.getTopic());
-            MessageProducer sender = session.createProducer(topic);
+            try (Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+                 MessageProducer sender = session.createProducer(session.createTopic(activeMQRequestDto.getTopic()))) {
 
-            // 분기 처리.. 랜덤 항목이 true면 반복시간만큼 message 만들어서 send
-            if(activeMQRequestDto.isRepeatBoolean()) {
-                int i = 0;
-                while (i < (activeMQRequestDto.getRepeatTime() / 1000) ) {
-                    i++;
+                FormatDefinition formatDefinition = FormatDefinition.from(activeMQRequestDto.getFormat());
+                List<String> valueRows = sortedValueRows(activeMQRequestDto.getValue());
+                int messageCount = resolveMessageCount(
+                        activeMQRequestDto.isRepeatBoolean(),
+                        activeMQRequestDto.getRepeatTime(),
+                        activeMQRequestDto.getDelayTime(),
+                        activeMQRequestDto.getMessageCount()
+                );
 
-                    // 작업 취소 확인 로직
-                    String cancelled = taskCancellation(taskId, sender, session);
-                    if (cancelled != null) return CompletableFuture.completedFuture(cancelled);
-
-                    // value count가 1개 이상일 때
-                    if(!activeMQRequestDto.getValue().get(0).isEmpty()) {
-                        // message creates in value count
-                        messageCreateInValueCount(taskId, activeMQRequestDto, session, sender);
-                    } else {
-                        // message creates in random
-                        messageCreateRandom(taskId, activeMQRequestDto, session, sender);
-                    }
-
+                if (valueRows.isEmpty()) {
+                    sendRandomMessages(taskId, activeMQRequestDto, session, sender, formatDefinition, messageCount);
+                } else {
+                    sendValueMessages(taskId, activeMQRequestDto, session, sender, formatDefinition, valueRows, messageCount);
                 }
-                // connection close;
-                sender.close();
-                session.close();
-            } else {
-                // 작업 취소 확인 로직
-                String cancelled = taskCancellation(taskId, sender, session);
-                if (cancelled != null) return CompletableFuture.completedFuture(cancelled);
-
-                // message creates in value count
-                messageCreateInValueCount(taskId, activeMQRequestDto, session, sender);
-
-                // connection close;
-                sender.close();
-                session.close();
             }
-
-        } catch (JMSException | InterruptedException e) {
+        } catch (JMSException | IOException e) {
+            throw new RuntimeException(e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             throw new RuntimeException(e);
         } finally {
             taskCancellationLogic.removeTask(taskId);
@@ -97,271 +94,87 @@ public class ActiveMQRequestLogic {
         return CompletableFuture.completedFuture("success");
     }
 
-    private String taskCancellation(String taskId, MessageProducer sender, Session session) throws JMSException {
-        // 작업 취소 확인 로직
-        if (taskCancellationLogic.isCancellationRequested(taskId)) {
-            log.info("작업이 취소되었습니다: " + taskId);
+    private void sendRandomMessages(
+            String taskId,
+            ActiveMQRequestDto requestDto,
+            Session session,
+            MessageProducer sender,
+            FormatDefinition formatDefinition,
+            int messageCount
+    ) throws JMSException, InterruptedException, JsonProcessingException {
+        for (int i = 0; i < messageCount; i++) {
+            if (isCancelled(taskId)) {
+                return;
+            }
 
-            // connection close;
-            sender.close();
-            session.close();
-
-            // 필요한 경우 여기에서 작업 종료 관련 정리를 수행할 수 있습니다.
-            return "Cancelled";
-        }
-        return null;
-    }
-
-    private void messageCreateRandom(String flag, ActiveMQRequestDto activeMQRequestDto, Session session, MessageProducer sender) throws JMSException, InterruptedException {
-        TextMessage message = session.createTextMessage();
-
-        Date now = new Date();
-        Locale currentLocale = new Locale("KOREAN", "KOREA");
-        String pattern = "yyyyMMddHHmmss";
-        SimpleDateFormat simpleDateFormat = new SimpleDateFormat(pattern, currentLocale);
-        String nowString = simpleDateFormat.format(now);
-
-        String[] keyArray = activeMQRequestDto.getFormat().get(0).get("dataId").split(",");
-        String[] keyTypeArray = activeMQRequestDto.getFormat().get(0).get("dataType").split(",");
-        String[] randomBooleanArray = activeMQRequestDto.getFormat().get(0).get("randomBoolean").split(",");
-        String[] randomConditionArray = activeMQRequestDto.getFormat().get(0).get("randomCondition").split(",");
-
-        message.setText(
-            "{" +
-                "\"CREATE_TIMESTAMP\": \"" + nowString + "\"," +
-                "\"MESSAGE_ID\": \"" + activeMQRequestDto.getTcName() + "\"," +
-                "\"DATA_MAP\": {" +
-                    "\"" + nowString + "\":{" +
-                    // Key: Value
-                    // make key and value in keyArray size
-                    makeRandomData(keyArray, keyTypeArray, randomBooleanArray, randomConditionArray) +
-                    "}" +
-                "}" +
-            "}"
-        );
-
-        log.info(flag + " message : " + message.getText());
-//                        log.info(flag + " message : " + prettyPrintUsingGlobalSetting(message.getText()));
-
-        // message send
-        sender.send(message);
-
-        Thread.sleep(activeMQRequestDto.getDelayTime());
-    }
-
-    private void messageCreateInValueCount(String flag, ActiveMQRequestDto activeMQRequestDto, Session session, MessageProducer sender) throws JMSException, InterruptedException {
-        for (int i = 0; i < (activeMQRequestDto.getValue().get(0)).size(); i++) {
-            TextMessage message = session.createTextMessage();
-
-            Date now = new Date();
-            Locale currentLocale = new Locale("KOREAN", "KOREA");
-            String pattern = "yyyyMMddHHmmss";
-            SimpleDateFormat simpleDateFormat = new SimpleDateFormat(pattern, currentLocale);
-            String nowString = simpleDateFormat.format(now);
-
-            String[] keyArray = activeMQRequestDto.getFormat().get(0).get("dataId").split(",");
-            String[] valueArray = activeMQRequestDto.getValue().get(0).get(i).split(",");
-
-            String[] keyTypeArray = activeMQRequestDto.getFormat().get(0).get("dataType").split(",");
-            String[] randomBooleanArray = activeMQRequestDto.getFormat().get(0).get("randomBoolean").split(",");
-            String[] randomConditionArray = activeMQRequestDto.getFormat().get(0).get("randomCondition").split(",");
-
-            message.setText(
-                "{" +
-                    "\"CREATE_TIMESTAMP\": \"" + nowString + "\"," +
-                    "\"MESSAGE_ID\": \"" + activeMQRequestDto.getTcName() + "\"," +
-                    "\"DATA_MAP\": {" +
-                        "\"" + nowString + "\":{" +
-                        // Key: Value
-                        // make key and value in keyArray size
-//                                    "\"" + keyArray[j] + "\": \"" + valueArray[j] + "\"," +
-                        makeData(keyArray, keyTypeArray, randomBooleanArray, randomConditionArray, valueArray) +
-                        "}" +
-                    "}" +
-                "}"
-            );
-
-            log.info(flag + " message : " + message.getText());
-//                        log.info(flag + " message : " + prettyPrintUsingGlobalSetting(message.getText()));
-
-            // message send
+            TextMessage message = session.createTextMessage(createStructuredMessage(requestDto.getTcName(), formatDefinition.randomPayload()));
+            log.info("{} random message[{}] : {}", taskId, i, message.getText());
             sender.send(message);
-
-            Thread.sleep(activeMQRequestDto.getDelayTime());
+            sleep(requestDto.getDelayTime());
         }
     }
 
-    private String makeRandomData(String[] keyArray, String[] keyTypeArray, String[] randomBooleanArray, String[] randomConditionArray) {
-        StringBuilder sb = new StringBuilder();
-        for(int i = 0; i < keyArray.length; i++) {
-            if(i == keyArray.length - 1)
-                sb.append("\"" + keyArray[i].trim() + "\": \"" + makeRandomValue(keyTypeArray[i].trim(), randomConditionArray[i].trim()) + "\"");
-            else
-                sb.append("\"" + keyArray[i].trim() + "\": \"" + makeRandomValue(keyTypeArray[i].trim(), randomConditionArray[i].trim()) + "\",");
+    private void sendValueMessages(
+            String taskId,
+            ActiveMQRequestDto requestDto,
+            Session session,
+            MessageProducer sender,
+            FormatDefinition formatDefinition,
+            List<String> valueRows,
+            int repeatCount
+    ) throws JMSException, InterruptedException, JsonProcessingException {
+        for (int repeatIndex = 0; repeatIndex < repeatCount; repeatIndex++) {
+            for (int rowIndex = 0; rowIndex < valueRows.size(); rowIndex++) {
+                if (isCancelled(taskId)) {
+                    return;
+                }
+
+                Map<String, String> payload = formatDefinition.payloadFromValueRow(valueRows.get(rowIndex));
+                TextMessage message = session.createTextMessage(createStructuredMessage(requestDto.getTcName(), payload));
+                log.info("{} value message[repeat={}, row={}] : {}", taskId, repeatIndex, rowIndex, message.getText());
+                sender.send(message);
+                sleep(requestDto.getDelayTime());
+            }
         }
-        return sb.toString();
-    }
-
-    private String makeRandomValue(String keyType, String randomCondition) {
-        String result = "";
-        switch (keyType) {
-            case "String":
-                result = randomString(Integer.parseInt(randomCondition));
-                break;
-            case "Integer":
-                result = randomInteger(Integer.parseInt(randomCondition));
-                break;
-            case "Double":
-                result = randomDouble(Double.parseDouble(randomCondition));
-                break;
-            case "Boolean":
-                result = randomBoolean();
-                break;
-            case "Date":
-                result = randomDate();
-                break;
-            default:
-                break;
-        }
-        return result;
-
-    }
-
-    private String randomString(int i) {
-        // i ~ j 길이의 랜덤 문자열 생성하여 리턴
-        return RandomStringUtils.randomAlphanumeric(i);
-    }
-
-    private String randomInteger(int i) {
-        // i ~ j 범위의 랜덤 정수 생성하여 리턴
-        return String.valueOf(RandomUtil.randomInterval(0, i));
-    }
-
-    private String randomDouble(double i) {
-        // i ~ j 범위 값 랜덤 생성
-        // k 자리수로 반올림
-        double randomDouble = i + new Random().nextDouble() * (0 - i);
-
-        // randomDouble을 3자리수로 반올림
-        randomDouble = Math.round(randomDouble * 1000) / 1000.0;
-
-        return String.valueOf(randomDouble);
-    }
-
-    private String randomBoolean() {
-        return null;
-    }
-
-    private String randomDate() {
-        return null;
-    }
-
-    private String makeData(String[] keyArray, String[] keyTypeArray, String[] randomBooleanArray, String[] randomConditionArray, String[] valueArray) {
-        StringBuilder sb = new StringBuilder();
-        for(int i = 0; i < keyArray.length; i++) {
-            if(i == keyArray.length - 1)
-                if(randomBooleanArray[i].trim().equals("1"))
-                    sb.append("\"" + keyArray[i].trim() + "\": \"" + makeRandomValue(keyTypeArray[i].trim(), randomConditionArray[i].trim()) + "\"");
-                else
-                    sb.append("\"" + keyArray[i].trim() + "\": \"" + valueArray[i].trim() + "\"");
-//                sb.append("\"" + keyArray[i].trim() + "\": \"" + valueArray[i].trim() + "\"");
-            else
-                if (randomBooleanArray[i].trim().equals("1"))
-                    sb.append("\"" + keyArray[i].trim() + "\": \"" + makeRandomValue(keyTypeArray[i].trim(), randomConditionArray[i].trim()) + "\",");
-                else
-                    sb.append("\"" + keyArray[i].trim() + "\": \"" + valueArray[i].trim() + "\",");
-//                sb.append("\"" + keyArray[i].trim() + "\": \"" + valueArray[i].trim() + "\",");
-        }
-        return sb.toString();
-    }
-
-    public String prettyPrintUsingGlobalSetting(String uglyJsonString) throws JsonProcessingException {
-        ObjectMapper mapper = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
-        Object jsonObject = mapper.readValue(uglyJsonString, Object.class);
-        return mapper.writeValueAsString(jsonObject);
     }
 
     @Async("threadPoolTaskExecutor")
     public CompletableFuture<String> sendFileTopic(String taskId, ActiveMQRequestFileDto activeMQRequestFileDto) {
-        log.info("taskId : " + taskId);
+        log.info("taskId : {}", taskId);
         taskCancellationLogic.registerTask(taskId);
 
         ConnectionFactory connectionFactory = new ActiveMQConnectionFactory(activeMQRequestFileDto.getActiveMQIp());
 
-        try(Connection connection = connectionFactory.createConnection(activeMQRequestFileDto.getId(), activeMQRequestFileDto.getPw())) {
+        try (Connection connection = connectionFactory.createConnection(activeMQRequestFileDto.getId(), activeMQRequestFileDto.getPw())) {
             connection.start();
 
-            // session, topic, producer create
-            Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
-            Topic topic = session.createTopic(activeMQRequestFileDto.getTopic());
-            MessageProducer sender = session.createProducer(topic);
+            try (Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+                 MessageProducer sender = session.createProducer(session.createTopic(activeMQRequestFileDto.getTopic()))) {
 
-            // local file read
-            String DATA_DIRECTORY = activeMQRequestFileDto.getFilePath();
-            File dir = new File(DATA_DIRECTORY);
+                Path filePath = resolveFile(activeMQRequestFileDto.getFilePath(), activeMQRequestFileDto.getFileName());
+                String fileContents = Files.readString(filePath, StandardCharsets.UTF_8).trim();
+                int messageCount = resolveMessageCount(
+                        activeMQRequestFileDto.isRepeatBoolean(),
+                        activeMQRequestFileDto.getRepeatTime(),
+                        activeMQRequestFileDto.getDelayTime(),
+                        activeMQRequestFileDto.getMessageCount()
+                );
 
-            String[] filenames = dir.list();
-            // When filename is in filenames, send message for contents in file
-            for (String filename : Objects.requireNonNull(filenames)) {
-                if(Objects.equals(filename, activeMQRequestFileDto.getFileName())) {
-
-                    // 반복처리 플래그가 True면 반복시간만큼 message 만들어서 send
-                    if(activeMQRequestFileDto.isRepeatBoolean()) {
-                        int i = 0;
-                        while (i < (activeMQRequestFileDto.getRepeatTime() / 1000) ) {
-                            i++;
-
-                            // 작업 취소 확인 로직
-                            String cancelled = taskCancellation(taskId, sender, session);
-                            if (cancelled != null) return CompletableFuture.completedFuture(cancelled);
-
-                            TextMessage message = session.createTextMessage();
-
-                            Date now = new Date();
-                            Locale currentLocale = new Locale("KOREAN", "KOREA");
-                            String pattern = "yyyyMMddHHmmss";
-                            SimpleDateFormat simpleDateFormat = new SimpleDateFormat(pattern, currentLocale);
-                            String nowString = simpleDateFormat.format(now);
-
-                            // file read
-                            String fileContents = "";
-                            try {
-                                fileContents = new String(java.nio.file.Files.readAllBytes(new File(DATA_DIRECTORY + filename).toPath()));
-                            } catch (IOException e) {
-                                e.printStackTrace();
-                            }
-
-                            message.setText(
-                                    "{" +
-                                        "\"CREATE_TIMESTAMP\": \"" + nowString + "\"," +
-                                        "\"MESSAGE_ID\": \"" + activeMQRequestFileDto.getTcName() + "\"," +
-                                        "\"DATA_MAP\": {" +
-                                            "\"" + nowString + "\":{" +
-                                                "\"USER_ID\": \"" + taskId + "\"," +
-                                                fileContents +
-                                            "}" +
-                                        "}" +
-                                    "}"
-                            );
-
-//                            log.info("message taskId : " + taskId);
-//                            log.info("message : " + prettyPrintUsingGlobalSetting(message.getText()));
-
-                            // message send
-                            sender.send(message);
-                            Thread.sleep(activeMQRequestFileDto.getDelayTime());
-                        }
+                for (int i = 0; i < messageCount; i++) {
+                    if (isCancelled(taskId)) {
+                        return CompletableFuture.completedFuture("Cancelled");
                     }
+
+                    TextMessage message = session.createTextMessage(createFileMessage(activeMQRequestFileDto.getTcName(), taskId, fileContents));
+                    log.info("{} file message[{}] : {}", taskId, i, message.getText());
+                    sender.send(message);
+                    sleep(activeMQRequestFileDto.getDelayTime());
                 }
             }
-
-            // connection close;
-            sender.close();
-            session.close();
-
-        } catch (JMSException e) {
+        } catch (JMSException | IOException e) {
             throw new RuntimeException(e);
         } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             throw new RuntimeException(e);
         } finally {
             taskCancellationLogic.removeTask(taskId);
@@ -372,125 +185,298 @@ public class ActiveMQRequestLogic {
 
     @Async("threadPoolTaskExecutor")
     public CompletableFuture<String> sendFileAndDataTopic(String taskId, ActiveMQRequestFileAndDataDto activeMQRequestFileAndDataDto) {
-        log.info("taskId : " + taskId);
+        log.info("taskId : {}", taskId);
         taskCancellationLogic.registerTask(taskId);
 
-        // activeMQ connection
         ConnectionFactory connectionFactory = new ActiveMQConnectionFactory(activeMQRequestFileAndDataDto.getActiveMQIp());
 
-        try(Connection connection = connectionFactory.createConnection(activeMQRequestFileAndDataDto.getId(), activeMQRequestFileAndDataDto.getPw())) {
+        try (Connection connection = connectionFactory.createConnection(activeMQRequestFileAndDataDto.getId(), activeMQRequestFileAndDataDto.getPw())) {
             connection.start();
 
-            // session, topic, producer create
-            Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
-            Topic topic = session.createTopic(activeMQRequestFileAndDataDto.getTopic());
-            MessageProducer sender = session.createProducer(topic);
+            try (Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+                 MessageProducer sender = session.createProducer(session.createTopic(activeMQRequestFileAndDataDto.getTopic()))) {
 
-            // local file read
-            String DATA_DIRECTORY = activeMQRequestFileAndDataDto.getFilePath();
-            String FORMAT_FILENAME = activeMQRequestFileAndDataDto.getFormatFileName();
-            String DATA_FILENAME = activeMQRequestFileAndDataDto.getDataFileName();
+                Path formatFilePath = resolveFile(activeMQRequestFileAndDataDto.getFilePath(), activeMQRequestFileAndDataDto.getFormatFileName());
+                Path dataFilePath = resolveFile(activeMQRequestFileAndDataDto.getFilePath(), activeMQRequestFileAndDataDto.getDataFileName());
+                String originFormatContent = Files.readString(formatFilePath, StandardCharsets.UTF_8);
+                List<String[]> dataLines = readDataLines(dataFilePath);
 
-            // 포멧 파일에서 내용 읽기
-            String formatContent = new String(java.nio.file.Files.readAllBytes(new File(DATA_DIRECTORY + FORMAT_FILENAME).toPath()));
-            String originFormatContent = formatContent;
+                for (int rowIndex = 0; rowIndex < dataLines.size(); rowIndex++) {
+                    if (isCancelled(taskId)) {
+                        return CompletableFuture.completedFuture("Cancelled");
+                    }
 
-            // 데이터 파일에서 데이터 읽기, 각 라인을 배열로 변환
-            List<String[]> dataLines = java.nio.file.Files.lines(Paths.get(DATA_DIRECTORY + DATA_FILENAME))
-                    // .map(line -> line.split(","))
-                    .map(line -> {
-                        String[] parts = line.split(",");
-
-                        for (int i = 0; i < parts.length; i++) {
-                            // 마지막 요소가 날짜 형식인 경우 변환
-                            if (parts[i].matches("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\.\\d{3}")) {
-                                DateTimeFormatter originalFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
-                                DateTimeFormatter newFormatter = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
-
-                                LocalDateTime dateTime = LocalDateTime.parse(parts[i], originalFormatter);
-                                parts[i] = dateTime.format(newFormatter);
-                            }
-                        }
-
-                        return parts;
-                    })
-                    .collect(Collectors.toList());
-
-            // 정규 표현식을 사용하여 플레이스홀더 찾기
-            Pattern dataPattern = Pattern.compile("\\{\\{.*?\\}\\}");
-
-            // 데이터 라인 만큼 반복
-            for (String[] data : dataLines) {
-                // 작업 취소 확인 로직
-                String cancelled = taskCancellation(taskId, sender, session);
-                if (cancelled != null) return CompletableFuture.completedFuture(cancelled);
-
-                formatContent = originFormatContent;
-                Matcher matcher = dataPattern.matcher(formatContent);
-                StringBuffer result = new StringBuffer();
-
-                int dataIndex = 0;
-                while (matcher.find() && dataIndex < data.length) {
-                    matcher.appendReplacement(result, Matcher.quoteReplacement(data[dataIndex++]));
+                    String renderedFormat = renderTemplate(originFormatContent, dataLines.get(rowIndex));
+                    TextMessage message = session.createTextMessage(createFileDataMessage(activeMQRequestFileAndDataDto.getTcName(), renderedFormat));
+                    log.info("{} file-data message[row={}] : {}", taskId, rowIndex, message.getText());
+                    sender.send(message);
+                    sleep(activeMQRequestFileAndDataDto.getDelayTime());
                 }
-                matcher.appendTail(result);
-                formatContent = result.toString();  // 업데이트된 결과로 템플릿 내용 갱신
-
-                TextMessage message = session.createTextMessage();
-
-                Date now = new Date();
-                Locale currentLocale = new Locale("KOREAN", "KOREA");
-                String pattern = "yyyyMMddHHmmss";
-                SimpleDateFormat simpleDateFormat = new SimpleDateFormat(pattern, currentLocale);
-                String nowString = simpleDateFormat.format(now);
-
-                message.setText(
-                        "{" +
-                            "\"CREATE_TIMESTAMP\": \"" + nowString + "\"," +
-                            "\"MESSAGE_ID\": \"" + activeMQRequestFileAndDataDto.getTcName() + "\"," +
-                            "\"DATA_MAP\": {" +
-                                "\"" + nowString + "\":{" +
-                                    "\"transaction_code\": \"" + activeMQRequestFileAndDataDto.getTcName() + "\"," +
-                                    "\"works_code\": \"" + "K" + "\"," +
-                                    "\"sndr_inform_edit_pgm_id\": \"" + "" + "\"," +
-                                    "\"eai_interface_id\": \"" + "" + "\"," +
-                                    "\"interface_data_dir_actual_type\": \"" + "" + "\"," +
-                                    "\"interface_data_ocr_res_flag\": \"" + "" + "\"," +
-                                    "\"interface_data_send_seq\": \"" + "0" + "\"," +
-                                    "\"interface_data_upd_tp\": \"" + "" + "\"," +
-                                    "\"interface_data_t_len\": \"" + "760" + "\"," +
-                                    "\"attribute\": \"" + " " + "\"," +
-                                    "\"bsc_gw_data_attr\": \"" + " " + "\"," +
-                                    "\"it_com_eai_ifc_var_item_usg_f\": \"" + " " + "\"," +
-                                    formatContent +
-                                "}" +
-                            "}" +
-                        "}"
-                );
-
-//                    log.info("message : " + prettyPrintUsingGlobalSetting(message.getText()));
-
-                // message send
-                sender.send(message);
-                Thread.sleep(activeMQRequestFileAndDataDto.getDelayTime());
             }
-
-            // connection close;
-            sender.close();
-            session.close();
-
-        } catch (JMSException e) {
-            throw new RuntimeException(e);
-        } catch (JsonProcessingException e) {
+        } catch (JMSException | IOException e) {
             throw new RuntimeException(e);
         } catch (InterruptedException e) {
-            throw new RuntimeException(e);
-        } catch (IOException e) {
+            Thread.currentThread().interrupt();
             throw new RuntimeException(e);
         } finally {
             taskCancellationLogic.removeTask(taskId);
         }
 
         return CompletableFuture.completedFuture("success");
+    }
+
+    private boolean isCancelled(String taskId) {
+        if (taskCancellationLogic.isCancellationRequested(taskId)) {
+            log.info("작업이 취소되었습니다: {}", taskId);
+            return true;
+        }
+        return false;
+    }
+
+    private String createStructuredMessage(String tcName, Map<String, String> payload) throws JsonProcessingException {
+        String nowString = nowTimestamp();
+
+        Map<String, Object> dataMap = new LinkedHashMap<>();
+        dataMap.put(nowString, payload);
+
+        Map<String, Object> root = new LinkedHashMap<>();
+        root.put("CREATE_TIMESTAMP", nowString);
+        root.put("MESSAGE_ID", tcName);
+        root.put("DATA_MAP", dataMap);
+
+        return objectMapper.writeValueAsString(root);
+    }
+
+    private String createFileMessage(String tcName, String taskId, String fileContents) {
+        String nowString = nowTimestamp();
+        String normalizedFileContents = removeOuterBraces(fileContents);
+        String comma = normalizedFileContents.isBlank() ? "" : ",";
+
+        return "{" +
+                "\"CREATE_TIMESTAMP\": \"" + nowString + "\"," +
+                "\"MESSAGE_ID\": \"" + escapeJsonString(tcName) + "\"," +
+                "\"DATA_MAP\": {" +
+                    "\"" + nowString + "":{" +
+                        "\"USER_ID\": \"" + escapeJsonString(taskId) + "\"" + comma +
+                        normalizedFileContents +
+                    "}" +
+                "}" +
+            "}";
+    }
+
+    private String createFileDataMessage(String tcName, String formatContent) {
+        String nowString = nowTimestamp();
+        String normalizedFormatContent = removeOuterBraces(formatContent.trim());
+        String comma = normalizedFormatContent.isBlank() ? "" : ",";
+
+        return "{" +
+                "\"CREATE_TIMESTAMP\": \"" + nowString + "\"," +
+                "\"MESSAGE_ID\": \"" + escapeJsonString(tcName) + "\"," +
+                "\"DATA_MAP\": {" +
+                    "\"" + nowString + "":{" +
+                        "\"transaction_code\": \"" + escapeJsonString(tcName) + "\"," +
+                        "\"works_code\": \"K\"," +
+                        "\"sndr_inform_edit_pgm_id\": \"\"," +
+                        "\"eai_interface_id\": \"\"," +
+                        "\"interface_data_dir_actual_type\": \"\"," +
+                        "\"interface_data_ocr_res_flag\": \"\"," +
+                        "\"interface_data_send_seq\": \"0\"," +
+                        "\"interface_data_upd_tp\": \"\"," +
+                        "\"interface_data_t_len\": \"760\"," +
+                        "\"attribute\": \" \"," +
+                        "\"bsc_gw_data_attr\": \" \"," +
+                        "\"it_com_eai_ifc_var_item_usg_f\": \" \"" + comma +
+                        normalizedFormatContent +
+                    "}" +
+                "}" +
+            "}";
+    }
+
+    private String renderTemplate(String template, String[] data) {
+        Matcher matcher = PLACEHOLDER_PATTERN.matcher(template);
+        StringBuffer result = new StringBuffer();
+        int dataIndex = 0;
+
+        while (matcher.find()) {
+            if (dataIndex >= data.length) {
+                throw new IllegalArgumentException("데이터 컬럼 수가 포맷 파일의 placeholder 수보다 적습니다.");
+            }
+            matcher.appendReplacement(result, Matcher.quoteReplacement(data[dataIndex++]));
+        }
+        matcher.appendTail(result);
+
+        return result.toString();
+    }
+
+    private List<String[]> readDataLines(Path dataFilePath) throws IOException {
+        try (Stream<String> lines = Files.lines(dataFilePath, StandardCharsets.UTF_8)) {
+            return lines
+                    .filter(line -> !line.isBlank())
+                    .map(this::splitCsvLine)
+                    .collect(Collectors.toList());
+        }
+    }
+
+    private String[] splitCsvLine(String line) {
+        String[] parts = line.split(",", -1);
+        for (int i = 0; i < parts.length; i++) {
+            parts[i] = normalizeDataValue(parts[i].trim());
+        }
+        return parts;
+    }
+
+    private String normalizeDataValue(String value) {
+        if (LEGACY_DATE_PATTERN.matcher(value).matches()) {
+            return LocalDateTime.parse(value, LEGACY_DATE_FORMATTER).format(NORMALIZED_DATE_FORMATTER);
+        }
+        return value;
+    }
+
+    private List<String> sortedValueRows(List<Map<Integer, String>> value) {
+        if (value == null || value.isEmpty() || value.get(0) == null || value.get(0).isEmpty()) {
+            return List.of();
+        }
+
+        return value.get(0).entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .map(Map.Entry::getValue)
+                .filter(Objects::nonNull)
+                .filter(row -> !row.isBlank())
+                .collect(Collectors.toList());
+    }
+
+    private int resolveMessageCount(boolean repeatBoolean, int repeatTime, int delayTime, int explicitMessageCount) {
+        if (explicitMessageCount > 0) {
+            return explicitMessageCount;
+        }
+        if (!repeatBoolean) {
+            return 1;
+        }
+        if (repeatTime <= 0) {
+            return 1;
+        }
+
+        int interval = delayTime > 0 ? delayTime : 1000;
+        return Math.max(1, (int) Math.ceil((double) repeatTime / interval));
+    }
+
+    private Path resolveFile(String directory, String filename) {
+        Path basePath = Paths.get(directory).toAbsolutePath().normalize();
+        Path targetPath = basePath.resolve(filename).normalize();
+
+        if (!targetPath.startsWith(basePath)) {
+            throw new IllegalArgumentException("허용되지 않은 파일 경로입니다: " + filename);
+        }
+        if (!Files.isRegularFile(targetPath)) {
+            throw new IllegalArgumentException("파일을 찾을 수 없습니다: " + targetPath);
+        }
+
+        return targetPath;
+    }
+
+    private String nowTimestamp() {
+        return LocalDateTime.now().format(TIMESTAMP_FORMATTER);
+    }
+
+    private void sleep(int delayTime) throws InterruptedException {
+        if (delayTime > 0) {
+            Thread.sleep(delayTime);
+        }
+    }
+
+    private String removeOuterBraces(String value) {
+        String trimmed = value == null ? "" : value.trim();
+        if (trimmed.startsWith("{") && trimmed.endsWith("}") && trimmed.length() >= 2) {
+            return trimmed.substring(1, trimmed.length() - 1).trim();
+        }
+        return trimmed;
+    }
+
+    private String escapeJsonString(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t");
+    }
+
+    public String prettyPrintUsingGlobalSetting(String uglyJsonString) throws JsonProcessingException {
+        Object jsonObject = objectMapper.readValue(uglyJsonString, Object.class);
+        return objectMapper.writeValueAsString(jsonObject);
+    }
+
+    private record FormatDefinition(
+            List<String> dataIds,
+            List<String> dataTypes,
+            List<String> randomBooleans,
+            List<String> randomConditions
+    ) {
+        private static FormatDefinition from(List<Map<String, String>> format) {
+            if (format == null || format.isEmpty() || format.get(0) == null) {
+                throw new IllegalArgumentException("format 정보가 필요합니다.");
+            }
+
+            Map<String, String> firstFormat = format.get(0);
+            List<String> dataIds = splitRequired(firstFormat.get("dataId"), "dataId");
+            List<String> dataTypes = splitWithDefault(firstFormat.get("dataType"), dataIds.size(), "String");
+            List<String> randomBooleans = splitWithDefault(firstFormat.get("randomBoolean"), dataIds.size(), "0");
+            List<String> randomConditions = splitWithDefault(firstFormat.get("randomCondition"), dataIds.size(), "");
+
+            return new FormatDefinition(dataIds, dataTypes, randomBooleans, randomConditions);
+        }
+
+        private Map<String, String> randomPayload() {
+            Map<String, String> payload = new LinkedHashMap<>();
+            for (int i = 0; i < dataIds.size(); i++) {
+                payload.put(dataIds.get(i), RandomValueGenerator.generate(dataTypes.get(i), randomConditions.get(i)));
+            }
+            return payload;
+        }
+
+        private Map<String, String> payloadFromValueRow(String row) {
+            String[] values = row.split(",", -1);
+            Map<String, String> payload = new LinkedHashMap<>();
+
+            for (int i = 0; i < dataIds.size(); i++) {
+                if (RandomValueGenerator.isRandomEnabled(randomBooleans.get(i))) {
+                    payload.put(dataIds.get(i), RandomValueGenerator.generate(dataTypes.get(i), randomConditions.get(i)));
+                    continue;
+                }
+
+                if (i >= values.length) {
+                    throw new IllegalArgumentException("value 컬럼 수가 format dataId 수보다 적습니다. row=" + row);
+                }
+                payload.put(dataIds.get(i), values[i].trim());
+            }
+            return payload;
+        }
+
+        private static List<String> splitRequired(String value, String fieldName) {
+            if (value == null || value.isBlank()) {
+                throw new IllegalArgumentException("format." + fieldName + " 값이 필요합니다.");
+            }
+            return split(value);
+        }
+
+        private static List<String> splitWithDefault(String value, int size, String defaultValue) {
+            List<String> values = value == null || value.isBlank() ? new ArrayList<>() : split(value);
+            while (values.size() < size) {
+                values.add(defaultValue);
+            }
+            if (values.size() > size) {
+                return values.subList(0, size);
+            }
+            return values;
+        }
+
+        private static List<String> split(String value) {
+            return Stream.of(value.split(",", -1))
+                    .map(String::trim)
+                    .collect(Collectors.toCollection(ArrayList::new));
+        }
     }
 }
