@@ -1,5 +1,6 @@
 package com.dt.digitaltwinsimulator.logic;
 
+import com.dt.digitaltwinsimulator.config.ActiveMqBrokerProperties;
 import com.dt.digitaltwinsimulator.entity.dto.ActiveMQRequestDto;
 import com.dt.digitaltwinsimulator.entity.dto.ActiveMQRequestFileAndDataDto;
 import com.dt.digitaltwinsimulator.entity.dto.ActiveMQRequestFileDto;
@@ -45,42 +46,65 @@ public class ActiveMQRequestLogic {
     private static final DateTimeFormatter NORMALIZED_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
 
     private final TaskCancellationLogic taskCancellationLogic;
+    private final TaskExecutionStatusLogic taskExecutionStatusLogic;
+    private final ActiveMqBrokerProperties brokerProperties;
     private final ObjectMapper objectMapper;
 
-    public ActiveMQRequestLogic(TaskCancellationLogic taskCancellationLogic) {
+    public ActiveMQRequestLogic(TaskCancellationLogic taskCancellationLogic, TaskExecutionStatusLogic taskExecutionStatusLogic, ActiveMqBrokerProperties brokerProperties) {
         this.taskCancellationLogic = taskCancellationLogic;
+        this.taskExecutionStatusLogic = taskExecutionStatusLogic;
+        this.brokerProperties = brokerProperties;
         this.objectMapper = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
     }
 
     @Async("threadPoolTaskExecutor")
     public CompletableFuture<String> sendTopic(String taskId, ActiveMQRequestDto requestDto) {
-        log.info("taskId : {}", taskId);
-        taskCancellationLogic.registerTask(taskId);
-        ConnectionFactory connectionFactory = new ActiveMQConnectionFactory(requestDto.getActiveMQIp());
-
-        try (Connection connection = connectionFactory.createConnection(requestDto.getId(), requestDto.getPw())) {
+        registerTask(taskId);
+        BrokerSettings broker = brokerFrom(requestDto.getActiveMQIp(), requestDto.getId(), requestDto.getPw(), requestDto.getTopic());
+        try (Connection connection = createConnection(broker)) {
             connection.start();
             try (Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
-                 MessageProducer sender = session.createProducer(session.createTopic(requestDto.getTopic()))) {
+                 MessageProducer sender = session.createProducer(session.createTopic(broker.topic()))) {
                 FormatDefinition formatDefinition = FormatDefinition.from(requestDto.getFormat());
                 List<String> valueRows = sortedValueRows(requestDto.getValue());
                 int messageCount = resolveMessageCount(requestDto.isRepeatBoolean(), requestDto.getRepeatTime(), requestDto.getDelayTime(), requestDto.getMessageCount());
-
                 if (valueRows.isEmpty()) {
                     sendRandomMessages(taskId, requestDto, session, sender, formatDefinition, messageCount);
                 } else {
                     sendValueMessages(taskId, requestDto, session, sender, formatDefinition, valueRows, messageCount);
                 }
             }
+            taskExecutionStatusLogic.markSuccess(taskId);
         } catch (JMSException | JsonProcessingException e) {
+            taskExecutionStatusLogic.markFailed(taskId, e);
             throw new RuntimeException(e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            taskExecutionStatusLogic.markCancelled(taskId);
             throw new RuntimeException(e);
         } finally {
             taskCancellationLogic.removeTask(taskId);
         }
         return CompletableFuture.completedFuture("success");
+    }
+
+    public List<String> dryRunTopic(ActiveMQRequestDto requestDto, int limit) throws JsonProcessingException {
+        FormatDefinition formatDefinition = FormatDefinition.from(requestDto.getFormat());
+        List<String> valueRows = sortedValueRows(requestDto.getValue());
+        int max = sanitizeLimit(limit);
+        int messageCount = Math.min(resolveMessageCount(requestDto.isRepeatBoolean(), requestDto.getRepeatTime(), requestDto.getDelayTime(), requestDto.getMessageCount()), max);
+        List<String> messages = new ArrayList<>();
+        if (valueRows.isEmpty()) {
+            for (int i = 0; i < messageCount; i++) messages.add(createStructuredMessage(requestDto.getTcName(), formatDefinition.randomPayload()));
+        } else {
+            for (int repeatIndex = 0; repeatIndex < messageCount && messages.size() < max; repeatIndex++) {
+                for (String valueRow : valueRows) {
+                    if (messages.size() >= max) break;
+                    messages.add(createStructuredMessage(requestDto.getTcName(), formatDefinition.payloadFromValueRow(valueRow)));
+                }
+            }
+        }
+        return messages;
     }
 
     private void sendRandomMessages(String taskId, ActiveMQRequestDto requestDto, Session session, MessageProducer sender, FormatDefinition formatDefinition, int messageCount) throws JMSException, InterruptedException, JsonProcessingException {
@@ -89,6 +113,7 @@ public class ActiveMQRequestLogic {
             TextMessage message = session.createTextMessage(createStructuredMessage(requestDto.getTcName(), formatDefinition.randomPayload()));
             log.info("{} random message[{}] : {}", taskId, i, message.getText());
             sender.send(message);
+            taskExecutionStatusLogic.incrementSentCount(taskId);
             sleep(requestDto.getDelayTime());
         }
     }
@@ -101,6 +126,7 @@ public class ActiveMQRequestLogic {
                 TextMessage message = session.createTextMessage(createStructuredMessage(requestDto.getTcName(), payload));
                 log.info("{} value message[repeat={}, row={}] : {}", taskId, repeatIndex, rowIndex, message.getText());
                 sender.send(message);
+                taskExecutionStatusLogic.incrementSentCount(taskId);
                 sleep(requestDto.getDelayTime());
             }
         }
@@ -108,30 +134,31 @@ public class ActiveMQRequestLogic {
 
     @Async("threadPoolTaskExecutor")
     public CompletableFuture<String> sendFileTopic(String taskId, ActiveMQRequestFileDto requestDto) {
-        log.info("taskId : {}", taskId);
-        taskCancellationLogic.registerTask(taskId);
-        ConnectionFactory connectionFactory = new ActiveMQConnectionFactory(requestDto.getActiveMQIp());
-
-        try (Connection connection = connectionFactory.createConnection(requestDto.getId(), requestDto.getPw())) {
+        registerTask(taskId);
+        BrokerSettings broker = brokerFrom(requestDto.getActiveMQIp(), requestDto.getId(), requestDto.getPw(), requestDto.getTopic());
+        try (Connection connection = createConnection(broker)) {
             connection.start();
             try (Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
-                 MessageProducer sender = session.createProducer(session.createTopic(requestDto.getTopic()))) {
+                 MessageProducer sender = session.createProducer(session.createTopic(broker.topic()))) {
                 Path filePath = resolveFile(requestDto.getFilePath(), requestDto.getFileName());
                 String fileContents = Files.readString(filePath, StandardCharsets.UTF_8).trim();
                 int messageCount = resolveMessageCount(requestDto.isRepeatBoolean(), requestDto.getRepeatTime(), requestDto.getDelayTime(), requestDto.getMessageCount());
-
                 for (int i = 0; i < messageCount; i++) {
                     if (isCancelled(taskId)) return CompletableFuture.completedFuture("Cancelled");
                     TextMessage message = session.createTextMessage(createFileMessage(requestDto.getTcName(), taskId, fileContents));
                     log.info("{} file message[{}] : {}", taskId, i, message.getText());
                     sender.send(message);
+                    taskExecutionStatusLogic.incrementSentCount(taskId);
                     sleep(requestDto.getDelayTime());
                 }
             }
+            taskExecutionStatusLogic.markSuccess(taskId);
         } catch (JMSException | IOException e) {
+            taskExecutionStatusLogic.markFailed(taskId, e);
             throw new RuntimeException(e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            taskExecutionStatusLogic.markCancelled(taskId);
             throw new RuntimeException(e);
         } finally {
             taskCancellationLogic.removeTask(taskId);
@@ -139,22 +166,28 @@ public class ActiveMQRequestLogic {
         return CompletableFuture.completedFuture("success");
     }
 
+    public List<String> dryRunFileTopic(ActiveMQRequestFileDto requestDto, int limit) throws IOException {
+        Path filePath = resolveFile(requestDto.getFilePath(), requestDto.getFileName());
+        String fileContents = Files.readString(filePath, StandardCharsets.UTF_8).trim();
+        int messageCount = Math.min(resolveMessageCount(requestDto.isRepeatBoolean(), requestDto.getRepeatTime(), requestDto.getDelayTime(), requestDto.getMessageCount()), sanitizeLimit(limit));
+        List<String> messages = new ArrayList<>();
+        for (int i = 0; i < messageCount; i++) messages.add(createFileMessage(requestDto.getTcName(), "dry-run", fileContents));
+        return messages;
+    }
+
     @Async("threadPoolTaskExecutor")
     public CompletableFuture<String> sendFileAndDataTopic(String taskId, ActiveMQRequestFileAndDataDto requestDto) {
-        log.info("taskId : {}", taskId);
-        taskCancellationLogic.registerTask(taskId);
-        ConnectionFactory connectionFactory = new ActiveMQConnectionFactory(requestDto.getActiveMQIp());
-
-        try (Connection connection = connectionFactory.createConnection(requestDto.getId(), requestDto.getPw())) {
+        registerTask(taskId);
+        BrokerSettings broker = brokerFrom(requestDto.getActiveMQIp(), requestDto.getId(), requestDto.getPw(), requestDto.getTopic());
+        try (Connection connection = createConnection(broker)) {
             connection.start();
             try (Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
-                 MessageProducer sender = session.createProducer(session.createTopic(requestDto.getTopic()))) {
+                 MessageProducer sender = session.createProducer(session.createTopic(broker.topic()))) {
                 Path formatFilePath = resolveFile(requestDto.getFilePath(), requestDto.getFormatFileName());
                 Path dataFilePath = resolveFile(requestDto.getFilePath(), requestDto.getDataFileName());
                 String originFormatContent = Files.readString(formatFilePath, StandardCharsets.UTF_8);
                 List<String[]> dataLines = readDataLines(dataFilePath, originFormatContent);
                 int repeatCount = resolveMessageCount(requestDto.isRepeatBoolean(), requestDto.getRepeatTime(), requestDto.getDelayTime(), requestDto.getMessageCount());
-
                 for (int repeatIndex = 0; repeatIndex < repeatCount; repeatIndex++) {
                     for (int rowIndex = 0; rowIndex < dataLines.size(); rowIndex++) {
                         if (isCancelled(taskId)) return CompletableFuture.completedFuture("Cancelled");
@@ -162,14 +195,18 @@ public class ActiveMQRequestLogic {
                         TextMessage message = session.createTextMessage(createFileDataMessage(requestDto.getTcName(), renderedFormat));
                         log.info("{} file-data message[repeat={}, row={}] : {}", taskId, repeatIndex, rowIndex, message.getText());
                         sender.send(message);
+                        taskExecutionStatusLogic.incrementSentCount(taskId);
                         sleep(requestDto.getDelayTime());
                     }
                 }
             }
+            taskExecutionStatusLogic.markSuccess(taskId);
         } catch (JMSException | IOException e) {
+            taskExecutionStatusLogic.markFailed(taskId, e);
             throw new RuntimeException(e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            taskExecutionStatusLogic.markCancelled(taskId);
             throw new RuntimeException(e);
         } finally {
             taskCancellationLogic.removeTask(taskId);
@@ -177,8 +214,45 @@ public class ActiveMQRequestLogic {
         return CompletableFuture.completedFuture("success");
     }
 
+    public List<String> dryRunFileAndDataTopic(ActiveMQRequestFileAndDataDto requestDto, int limit) throws IOException {
+        Path formatFilePath = resolveFile(requestDto.getFilePath(), requestDto.getFormatFileName());
+        Path dataFilePath = resolveFile(requestDto.getFilePath(), requestDto.getDataFileName());
+        String originFormatContent = Files.readString(formatFilePath, StandardCharsets.UTF_8);
+        List<String[]> dataLines = readDataLines(dataFilePath, originFormatContent);
+        int repeatCount = resolveMessageCount(requestDto.isRepeatBoolean(), requestDto.getRepeatTime(), requestDto.getDelayTime(), requestDto.getMessageCount());
+        int max = sanitizeLimit(limit);
+        List<String> messages = new ArrayList<>();
+        for (int repeatIndex = 0; repeatIndex < repeatCount && messages.size() < max; repeatIndex++) {
+            for (String[] dataLine : dataLines) {
+                if (messages.size() >= max) break;
+                messages.add(createFileDataMessage(requestDto.getTcName(), renderTemplate(originFormatContent, dataLine)));
+            }
+        }
+        return messages;
+    }
+
+    private void registerTask(String taskId) {
+        log.info("taskId : {}", taskId);
+        taskCancellationLogic.registerTask(taskId);
+        taskExecutionStatusLogic.markRunning(taskId);
+    }
+
+    private Connection createConnection(BrokerSettings broker) throws JMSException {
+        ConnectionFactory connectionFactory = new ActiveMQConnectionFactory(broker.brokerUrl());
+        return connectionFactory.createConnection(broker.username(), broker.password());
+    }
+
+    private BrokerSettings brokerFrom(String brokerUrl, String username, String password, String topic) {
+        return new BrokerSettings(defaultIfBlank(brokerUrl, brokerProperties.getBrokerUrl()), defaultIfBlank(username, brokerProperties.getUsername()), defaultIfBlank(password, brokerProperties.getPassword()), defaultIfBlank(topic, brokerProperties.getTopic()));
+    }
+
+    private String defaultIfBlank(String value, String defaultValue) {
+        return value == null || value.isBlank() ? defaultValue : value;
+    }
+
     private boolean isCancelled(String taskId) {
         if (taskCancellationLogic.isCancellationRequested(taskId)) {
+            taskExecutionStatusLogic.markCancelled(taskId);
             log.info("작업이 취소되었습니다: {}", taskId);
             return true;
         }
@@ -252,19 +326,11 @@ public class ActiveMQRequestLogic {
     private List<String[]> readDataLines(Path dataFilePath, String template) throws IOException {
         List<String[]> rows;
         try (Stream<String> lines = Files.lines(dataFilePath, StandardCharsets.UTF_8)) {
-            rows = lines.map(this::stripBom)
-                    .map(String::trim)
-                    .filter(line -> !line.isBlank())
-                    .filter(line -> !line.startsWith("#"))
-                    .map(this::splitCsvLine)
-                    .collect(Collectors.toCollection(ArrayList::new));
+            rows = lines.map(this::stripBom).map(String::trim).filter(line -> !line.isBlank()).filter(line -> !line.startsWith("#")).map(this::splitCsvLine).collect(Collectors.toCollection(ArrayList::new));
         }
         if (rows.isEmpty()) throw new IllegalArgumentException("데이터 파일에 전송할 데이터가 없습니다.");
-
         List<String> placeholderNames = extractPlaceholderNames(template);
-        if (hasHeaderRow(rows.get(0), placeholderNames)) {
-            return mapRowsByHeader(rows, placeholderNames);
-        }
+        if (hasHeaderRow(rows.get(0), placeholderNames)) return mapRowsByHeader(rows, placeholderNames);
         validateDataRows(rows, placeholderNames.size());
         return rows;
     }
@@ -282,9 +348,7 @@ public class ActiveMQRequestLogic {
     }
 
     private boolean hasHeaderRow(String[] firstRow, List<String> placeholderNames) {
-        for (String header : firstRow) {
-            if (placeholderNames.contains(header.trim())) return true;
-        }
+        for (String header : firstRow) if (placeholderNames.contains(header.trim())) return true;
         return false;
     }
 
@@ -292,9 +356,7 @@ public class ActiveMQRequestLogic {
         String[] header = rows.get(0);
         Map<String, Integer> indexByHeader = new LinkedHashMap<>();
         for (int i = 0; i < header.length; i++) indexByHeader.put(header[i].trim(), i);
-        for (String placeholderName : placeholderNames) {
-            if (!indexByHeader.containsKey(placeholderName)) throw new IllegalArgumentException("데이터 파일 header에 placeholder 컬럼이 없습니다: " + placeholderName);
-        }
+        for (String placeholderName : placeholderNames) if (!indexByHeader.containsKey(placeholderName)) throw new IllegalArgumentException("데이터 파일 header에 placeholder 컬럼이 없습니다: " + placeholderName);
         List<String[]> mappedRows = new ArrayList<>();
         for (int rowIndex = 1; rowIndex < rows.size(); rowIndex++) {
             String[] source = rows.get(rowIndex);
@@ -311,15 +373,32 @@ public class ActiveMQRequestLogic {
     }
 
     private void validateDataRows(List<String[]> rows, int placeholderCount) {
-        for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
-            if (rows.get(rowIndex).length < placeholderCount) throw new IllegalArgumentException("데이터 row의 컬럼 수가 포맷 placeholder 수보다 적습니다. rowIndex=" + rowIndex);
-        }
+        for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) if (rows.get(rowIndex).length < placeholderCount) throw new IllegalArgumentException("데이터 row의 컬럼 수가 포맷 placeholder 수보다 적습니다. rowIndex=" + rowIndex);
     }
 
     private String[] splitCsvLine(String line) {
-        String[] parts = line.split(",", -1);
-        for (int i = 0; i < parts.length; i++) parts[i] = normalizeDataValue(parts[i].trim());
-        return parts;
+        List<String> values = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        boolean inQuotes = false;
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+            if (c == '"') {
+                if (inQuotes && i + 1 < line.length() && line.charAt(i + 1) == '"') {
+                    current.append('"');
+                    i++;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+            } else if (c == ',' && !inQuotes) {
+                values.add(normalizeDataValue(current.toString().trim()));
+                current.setLength(0);
+            } else {
+                current.append(c);
+            }
+        }
+        if (inQuotes) throw new IllegalArgumentException("CSV 따옴표가 닫히지 않았습니다: " + line);
+        values.add(normalizeDataValue(current.toString().trim()));
+        return values.toArray(String[]::new);
     }
 
     private String normalizeDataValue(String value) {
@@ -341,6 +420,11 @@ public class ActiveMQRequestLogic {
         if (!repeatBoolean || repeatTime <= 0) return 1;
         int interval = delayTime > 0 ? delayTime : 1000;
         return Math.max(1, (int) Math.ceil((double) repeatTime / interval));
+    }
+
+    private int sanitizeLimit(int limit) {
+        if (limit <= 0) return 10;
+        return Math.min(limit, 100);
     }
 
     private Path resolveFile(String directory, String filename) {
@@ -373,6 +457,9 @@ public class ActiveMQRequestLogic {
     public String prettyPrintUsingGlobalSetting(String uglyJsonString) throws JsonProcessingException {
         Object jsonObject = objectMapper.readValue(uglyJsonString, Object.class);
         return objectMapper.writeValueAsString(jsonObject);
+    }
+
+    private record BrokerSettings(String brokerUrl, String username, String password, String topic) {
     }
 
     private record FormatDefinition(List<String> dataIds, List<String> dataTypes, List<String> randomBooleans, List<String> randomConditions) {
