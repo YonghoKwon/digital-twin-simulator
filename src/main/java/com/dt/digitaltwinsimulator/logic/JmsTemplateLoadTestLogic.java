@@ -2,22 +2,23 @@ package com.dt.digitaltwinsimulator.logic;
 
 import com.dt.digitaltwinsimulator.config.ActiveMqBrokerProperties;
 import com.dt.digitaltwinsimulator.entity.dto.JmsTemplateLoadTestRequestDto;
+import com.dt.digitaltwinsimulator.entity.dto.LoadTestResultDto;
 import jakarta.jms.ConnectionFactory;
 import org.apache.activemq.artemis.jms.client.ActiveMQConnectionFactory;
 import org.springframework.jms.connection.CachingConnectionFactory;
 import org.springframework.jms.core.JmsTemplate;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Service
 public class JmsTemplateLoadTestLogic {
@@ -25,25 +26,19 @@ public class JmsTemplateLoadTestLogic {
 
     private final ActiveMqBrokerProperties brokerProperties;
     private final TaskCancellationLogic taskCancellationLogic;
-    private final TaskExecutionStatusLogic taskExecutionStatusLogic;
 
-    public JmsTemplateLoadTestLogic(
-            ActiveMqBrokerProperties brokerProperties,
-            TaskCancellationLogic taskCancellationLogic,
-            TaskExecutionStatusLogic taskExecutionStatusLogic
-    ) {
+    public JmsTemplateLoadTestLogic(ActiveMqBrokerProperties brokerProperties, TaskCancellationLogic taskCancellationLogic) {
         this.brokerProperties = brokerProperties;
         this.taskCancellationLogic = taskCancellationLogic;
-        this.taskExecutionStatusLogic = taskExecutionStatusLogic;
     }
 
-    @Async("threadPoolTaskExecutor")
-    public CompletableFuture<String> run(String taskId, JmsTemplateLoadTestRequestDto requestDto) {
+    public LoadTestResultDto run(String taskId, JmsTemplateLoadTestRequestDto requestDto) {
         taskCancellationLogic.registerTask(taskId);
-        taskExecutionStatusLogic.markRunning(taskId);
-
         CachingConnectionFactory cachingConnectionFactory = null;
         ExecutorService executorService = null;
+        long startedAt = System.nanoTime();
+        AtomicLong successCount = new AtomicLong();
+        AtomicLong failureCount = new AtomicLong();
 
         try {
             ConnectionFactory targetFactory = new ActiveMQConnectionFactory(
@@ -62,43 +57,45 @@ public class JmsTemplateLoadTestLogic {
             int totalMessageCount = Math.max(1, requestDto.getMessageCount());
             AtomicInteger nextIndex = new AtomicInteger(0);
             executorService = Executors.newFixedThreadPool(workerCount);
-            List<Future<?>> futures = new ArrayList<>();
+            List<Future<Void>> futures = new ArrayList<>();
+            TpsPacer pacer = new TpsPacer(requestDto.getTargetTps());
 
             for (int workerIndex = 0; workerIndex < workerCount; workerIndex++) {
                 int currentWorkerIndex = workerIndex;
-                futures.add(executorService.submit(() -> {
+                Callable<Void> task = () -> {
                     while (true) {
                         if (taskCancellationLogic.isCancellationRequested(taskId)) {
-                            return;
+                            return null;
                         }
 
                         int messageIndex = nextIndex.getAndIncrement();
                         if (messageIndex >= totalMessageCount) {
-                            return;
+                            return null;
                         }
 
+                        pacer.awaitTurn(messageIndex);
                         String message = createMessage(requestDto.getTcName(), currentWorkerIndex, messageIndex, requestDto.getPayload());
-                        jmsTemplate.convertAndSend(topic, message);
-                        taskExecutionStatusLogic.incrementSentCount(taskId);
+                        try {
+                            jmsTemplate.convertAndSend(topic, message);
+                            successCount.incrementAndGet();
+                        } catch (Exception sendError) {
+                            failureCount.incrementAndGet();
+                        }
                         sleep(requestDto.getDelayTime());
                     }
-                }));
+                };
+                futures.add(executorService.submit(task));
             }
 
-            for (Future<?> future : futures) {
+            for (Future<Void> future : futures) {
                 future.get();
             }
 
-            if (taskCancellationLogic.isCancellationRequested(taskId)) {
-                taskExecutionStatusLogic.markCancelled(taskId);
-                return CompletableFuture.completedFuture("cancelled");
-            }
-
-            taskExecutionStatusLogic.markSuccess(taskId);
-            return CompletableFuture.completedFuture("success");
+            boolean cancelled = taskCancellationLogic.isCancellationRequested(taskId);
+            return result(taskId, totalMessageCount, successCount.get(), failureCount.get(), startedAt, workerCount, requestDto.getTargetTps(), cancelled, cancelled ? "cancelled" : "completed");
         } catch (Exception e) {
-            taskExecutionStatusLogic.markFailed(taskId, e);
-            throw new RuntimeException(e);
+            long failed = Math.max(1, failureCount.get());
+            return result(taskId, requestDto.getMessageCount(), successCount.get(), failed, startedAt, Math.max(1, requestDto.getWorkerCount()), requestDto.getTargetTps(), false, e.getClass().getSimpleName() + ": " + e.getMessage());
         } finally {
             taskCancellationLogic.removeTask(taskId);
             if (executorService != null) {
@@ -108,6 +105,16 @@ public class JmsTemplateLoadTestLogic {
                 cachingConnectionFactory.destroy();
             }
         }
+    }
+
+    private LoadTestResultDto result(String taskId, long requestedCount, long successCount, long failureCount, long startedAt, int workerCount, int targetTps, boolean cancelled, String message) {
+        long elapsedMillis = Math.max(1, (System.nanoTime() - startedAt) / 1_000_000L);
+        double actualTps = successCount * 1000.0 / elapsedMillis;
+        return new LoadTestResultDto(taskId, requestedCount, successCount, failureCount, elapsedMillis, round3(actualTps), workerCount, targetTps, cancelled, message);
+    }
+
+    private double round3(double value) {
+        return Math.round(value * 1000.0) / 1000.0;
     }
 
     private String createMessage(String tcName, int workerIndex, int messageIndex, String payload) {
@@ -162,5 +169,33 @@ public class JmsTemplateLoadTestLogic {
                 .replace("\n", "\\n")
                 .replace("\r", "\\r")
                 .replace("\t", "\\t");
+    }
+
+    private static class TpsPacer {
+        private final int targetTps;
+        private final long startedAt;
+
+        private TpsPacer(int targetTps) {
+            this.targetTps = targetTps;
+            this.startedAt = System.nanoTime();
+        }
+
+        private void awaitTurn(int messageIndex) {
+            if (targetTps <= 0) {
+                return;
+            }
+            long targetNanos = startedAt + ((long) messageIndex * 1_000_000_000L / targetTps);
+            long sleepNanos = targetNanos - System.nanoTime();
+            if (sleepNanos <= 0) {
+                return;
+            }
+            try {
+                long millis = sleepNanos / 1_000_000L;
+                int nanos = (int) (sleepNanos % 1_000_000L);
+                Thread.sleep(millis, nanos);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
     }
 }
