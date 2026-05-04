@@ -43,9 +43,10 @@ class ActiveMQRequestLogicTest {
     }
 
     @Test
-    void renderTemplateFailsWhenDataColumnsAreInsufficient() throws Exception {
+    void renderTemplateFailsWhenDataColumnsAreInsufficient() {
         assertThatThrownBy(() -> invokeRenderTemplate("\"a\": \"{{a}}\", \"b\": \"{{b}}\"", new String[]{"A"}))
                 .hasRootCauseInstanceOf(IllegalArgumentException.class)
+                .rootCause()
                 .hasMessageContaining("placeholder");
     }
 
