@@ -1,5 +1,6 @@
 package com.dt.digitaltwinsimulator.entity.dto;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
@@ -16,7 +17,7 @@ public class DryRunResponseDto {
     private int estimatedSourceRowCount;
     private long estimatedTotalMessagesPerTask;
     private String generationMode;
-    private List<String> messages;
+    private List<JsonNode> messages;
 
     public DryRunResponseDto(
             int requestedLimit,
@@ -25,7 +26,7 @@ public class DryRunResponseDto {
             int estimatedSourceRowCount,
             long estimatedTotalMessagesPerTask,
             String generationMode,
-            List<String> messages
+            List<JsonNode> messages
     ) {
         this.requestedLimit = requestedLimit;
         this.returnedCount = returnedCount;
